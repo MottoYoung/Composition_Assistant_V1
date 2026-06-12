@@ -57,9 +57,6 @@ python main.py config
 # 同步测试
 python main.py sync -i <图像路径> [-p <提示词版本>] [-r <重复次数>]
 
-# 批量测试（Batch API，成本 50%）
-python main.py batch -i <图像路径>
-
 # 生成报告
 python main.py report
 ```
@@ -91,13 +88,40 @@ results/
 ## ⚙️ 环境配置
 
 ```bash
-pip install google-genai pyyaml pillow
+pip install google-genai pillow
 export GEMINI_API_KEY="your-api-key"
 ```
 
+`pyyaml` 现在不是必需依赖；未安装时会使用内置的简化 YAML 解析器来读取当前这套 `config.yaml`。
+
 ## 🔧 配置文件
 
-每个目录包含 `config.yaml`，定义提示词版本（System Instruction + User Prompt）和模型参数（temperature, top_k, top_p）。
+每个目录包含：
+
+- `config.yaml`：只维护提示词版本、Markdown 文件名和模型参数
+- `prompts/*.md`：实际的 System Instruction / User Prompt 文本
+
+推荐写法示例：
+
+```yaml
+prompts:
+  - id: v1
+    description: 示例版本
+    system_instruction_file: prompts/v1.system.md
+    user_prompt_file: prompts/v1.user.md
+```
+
+并行模式会使用：
+
+```yaml
+prompts:
+  - id: parallel_v1
+    description: 示例版本
+    system_instruction_file: prompts/parallel_v1.system.md
+    user_prompt_files:
+      rule_of_thirds: prompts/parallel_v1.rule_of_thirds.md
+      center_composition: prompts/parallel_v1.center_composition.md
+```
 
 ## 📈 选择建议
 

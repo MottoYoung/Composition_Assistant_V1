@@ -2,10 +2,7 @@
 提示词测评主入口
 
 使用方法:
-    # 阶段1: 批量测试（质量筛选）
-    python main.py batch -i test_images/input/input.jpg
-    
-    # 阶段2: 同步测试（响应时间测量）
+    # 同步测试（响应时间测量）
     python main.py sync -i test_images/input/input.jpg -r 3
     
     # 生成报告
@@ -23,34 +20,13 @@ from prompts_config import (
     PROMPT_VERSIONS, MODEL_CONFIGS, 
     generate_test_matrix, save_test_matrix, load_prompts_from_yaml
 )
-from batch_runner import run_batch_assessment
-from sync_runner import run_sync_assessment
-from report_generator import generate_report, find_latest_result_dir
-
-
-def cmd_batch(args):
-    """执行批量测试（阶段1）"""
-    print("\n" + "="*60)
-    print("🚀 阶段1: 批量测试 (Batch API)")
-    print("="*60)
-    
-    if args.prompt:
-        print(f"   指定提示词版本: {args.prompt}")
-    
-    job_info = run_batch_assessment(
-        input_image_path=args.image,
-        wait=not args.no_wait,
-        prompt_id=args.prompt
-    )
-    
-    if args.no_wait:
-        print(f"\n作业已提交，作业名称: {job_info.job_name}")
-        print("使用以下命令查看状态:")
-        print(f"  python main.py status --job {job_info.job_name}")
 
 
 def cmd_sync(args):
     """执行同步测试（阶段2）"""
+    from report_generator import generate_report, find_latest_result_dir
+    from sync_runner import run_sync_assessment
+
     print("\n" + "="*60)
     print("⚡ 阶段2: 同步测试 (响应时间测量)")
     print("="*60)
@@ -73,6 +49,8 @@ def cmd_sync(args):
 
 def cmd_report(args):
     """生成测评报告"""
+    from report_generator import generate_report, find_latest_result_dir
+
     if args.input:
         result_dir = Path(args.input)
     else:
@@ -118,10 +96,7 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 示例:
-  # 阶段1: 批量测试（质量筛选，成本50%）
-  python main.py batch -i test_images/input/input.jpg
-  
-  # 阶段2: 同步测试（响应时间测量）
+  # 同步测试（响应时间测量）
   python main.py sync -i test_images/input/input.jpg -r 3
   
   # 生成报告
@@ -133,13 +108,6 @@ def main():
     )
     
     subparsers = parser.add_subparsers(dest="command", help="子命令")
-    
-    # batch 命令
-    batch_parser = subparsers.add_parser("batch", help="阶段1: 批量测试（质量筛选）")
-    batch_parser.add_argument("-i", "--image", required=True, help="输入图像路径")
-    batch_parser.add_argument("-p", "--prompt", help="指定提示词版本ID（默认全部）")
-    batch_parser.add_argument("--no-wait", action="store_true", help="不等待作业完成")
-    batch_parser.set_defaults(func=cmd_batch)
     
     # sync 命令
     sync_parser = subparsers.add_parser("sync", help="阶段2: 同步测试（响应时间测量）")

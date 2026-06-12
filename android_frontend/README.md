@@ -209,10 +209,9 @@ const val AI_COMPOSITION_URL = "http://192.168.x.x:8100/"
 ### 2. 如需本地后端联调，先启动后端
 
 ```bash
-cd ../pc_demo_parallel_two_stage_new
+cd ../backend
 pip install -r requirements.txt
-export GEMINI_API_KEY=your_key
-export USE_GEMINI_PROXY=false
+export DASHSCOPE_API_KEY=your_dashscope_key
 uvicorn main:app --host 0.0.0.0 --port 8100 --reload
 ```
 
@@ -317,4 +316,4 @@ cd android_frontend
 ## 进一步阅读
 
 - 仓库总说明：[../README.md](../README.md)
-- 后端说明：[../pc_demo_parallel_two_stage_new/README.md](../pc_demo_parallel_two_stage_new/README.md)
+- 后端说明：[../backend/README.md](../backend/README.md)

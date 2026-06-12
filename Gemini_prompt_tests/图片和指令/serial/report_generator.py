@@ -37,13 +37,7 @@ def generate_report(
     with open(summary_path, "r", encoding="utf-8") as f:
         summary = json.load(f)
     
-    # 判断是 batch 还是 sync 结果
-    is_sync = "repeats_per_case" in summary
-    
-    if is_sync:
-        report = _generate_sync_report(summary, result_dir)
-    else:
-        report = _generate_batch_report(summary, result_dir)
+    report = _generate_sync_report(summary, result_dir)
     
     # 保存报告
     if output_path is None:
@@ -177,76 +171,6 @@ def _generate_sync_report(summary: dict, result_dir: Path) -> str:
                 "---",
                 "",
             ])
-    
-    return "\n".join(lines)
-
-
-def _generate_batch_report(summary: dict, result_dir: Path) -> str:
-    """生成批量测评报告（阶段1）"""
-    results = summary.get("results", [])
-    
-    lines = [
-        "# 提示词测评报告 - 质量筛选",
-        "",
-        f"> 生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
-        f"> 作业名称: `{summary.get('display_name', 'N/A')}`",
-        f"> 状态: {summary.get('status', 'N/A')}",
-        "",
-        "---",
-        "",
-        "## 📊 测试结果概览",
-        "",
-        f"- 总测试数: {summary.get('total_cases', 0)}",
-        f"- 成功: {summary.get('successful_cases', 0)}",
-        f"- 失败: {summary.get('failed_cases', 0)}",
-        "",
-        "---",
-        "",
-        "## 📝 各用例输出预览",
-        "",
-    ]
-    
-    for r in results:
-        case_id = r.get("case_id", "unknown")
-        success = r.get("success", False)
-        status = "✅" if success else "❌"
-        
-        lines.append(f"### {status} {case_id}")
-        lines.append("")
-        
-        if success:
-            texts = r.get("texts", [])
-            if texts:
-                # 只显示第一段文本的预览
-                preview = texts[0][:500] + "..." if len(texts[0]) > 500 else texts[0]
-                lines.append("**输出预览:**")
-                lines.append("```")
-                lines.append(preview)
-                lines.append("```")
-            
-            images = r.get("images", [])
-            if images:
-                lines.append(f"**生成图片数**: {len(images)}")
-        else:
-            error = r.get("error", "Unknown error")
-            lines.append(f"**错误**: {error}")
-        
-        lines.append("")
-    
-    lines.extend([
-        "---",
-        "",
-        "## 🎯 人工评审建议",
-        "",
-        "请查看各用例的输出，标记质量评分后，选择优质组合进入阶段2（响应时间测试）。",
-        "",
-        "| 用例ID | 质量评分(1-5) | 备注 |",
-        "|--------|--------------|------|",
-    ])
-    
-    for r in results:
-        if r.get("success"):
-            lines.append(f"| `{r['case_id']}` | ___ | |")
     
     return "\n".join(lines)
 

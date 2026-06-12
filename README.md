@@ -1,31 +1,32 @@
-# PhotoFramer
+# Composition_assistant_v1
 
-PhotoFramer 是一个面向“辅助拍摄 / 构图引导”的实验项目：用户先拍一张当前场景图，后端给出多个可行构图方案与参考图，Android 客户端再根据这些目标构图做实时闭环引导，帮助用户把手机取景调整到更接近目标效果。
+Assistant_v1 是一个面向“辅助拍摄 / 构图引导”的实验项目：用户先拍一张当前场景图，后端给出多个可行构图方案与参考图，Android 客户端再根据这些目标构图做实时闭环引导，帮助用户把手机取景调整到更接近目标效果。
 
-当前仓库里最重要的两条主线是：
+项目内部的应用名仍以 PhotoFramer 为主，当前仓库最重要的两条主线是：
 
 - `android_frontend`：Android 前端，负责相机预览、拍照、候选展示、实时引导与最终拍摄
-- `pc_demo_parallel_two_stage_new`：新的后端主干，虽然目录名带 `two_stage_new`，但当前实际运行架构已经是 Stage 0 / Stage 1 / Stage 2 三阶段流水线
+- `backend`：三阶段后端主干，负责构图技术筛选、构图分析与参考图生成
 
 ## 仓库里有什么
 
 ```text
-PhotoFramer
-├── android_frontend                  # Android 客户端
-├── pc_demo_parallel_two_stage_new    # 三阶段后端主干
-├── API_access_tests                  # 接口侧实验/验证脚本
-├── Gemini_prompt_tests               # Prompt 试验记录
-├── docs                              # 仓库内文档
-└── test_images                       # 测试图片
+Composition_Assistant_V1
+├── android_frontend       # Android 客户端
+├── backend                # 三阶段后端主干
+├── API_access_tests       # 接口侧实验/验证脚本
+├── Gemini_prompt_tests    # Prompt 试验记录
+├── docs                   # 仓库内文档
+└── test_images            # 测试图片
 ```
 
 ## 核心能力
 
 - AI 构图分析：对当前照片评估哪些构图 technique 适用
-- 多候选输出：针对不同 technique 返回步骤化建议与参考图
+- 多候选方案输出：针对不同 technique 返回步骤化建议与参考图
 - 流式结果返回：后端支持 SSE，将候选逐个推送给前端
 - 实时本地验证：前端结合 OpenCV、ML Kit、ARCore/姿态信息做闭环引导
 - 画面内构图：支持基于裁切推荐的“画面内重构图”模式
+- Provider 组合：后端 Stage 0 / Stage 1 / Stage 2 可在 Qwen 与 Gemini 之间组合切换
 
 ## 系统结构
 
@@ -33,7 +34,7 @@ PhotoFramer
 flowchart LR
     A["Android CameraX 取景"] --> B["拍照并预处理"]
     B --> C["后端 composition_analyze / composition_analyze_stream"]
-    C --> D["Stage 0 软预筛"]
+    C --> D["Stage 0 软预筛（可选）"]
     D --> E["Stage 1 构图分析"]
     E --> F["Stage 2 参考图生成"]
     F --> G["候选 compositions 返回前端"]
@@ -72,20 +73,27 @@ flowchart LR
 
 ### 1. 启动后端
 
-详细说明见 [pc_demo_parallel_two_stage_new/README.md](./pc_demo_parallel_two_stage_new/README.md)。
+详细说明见 [backend/README.md](./backend/README.md)。
 
 最小步骤：
 
 ```bash
-cd pc_demo_parallel_two_stage_new
+cd backend
 pip install -r requirements.txt
 
-# 以官方 Gemini 为例
-export GEMINI_API_KEY=your_key
-export USE_GEMINI_PROXY=false
+# 当前默认配置偏向 Qwen provider
+export DASHSCOPE_API_KEY=your_dashscope_key
 
 uvicorn main:app --host 0.0.0.0 --port 8100 --reload
 ```
+
+如果要切换到 Gemini 或混合 provider，请修改 `backend/config.py` 中的：
+
+- `STAGE0_PROVIDER`
+- `STAGE1_PROVIDER`
+- `STAGE2_PROVIDER`
+- `USE_GEMINI_PROXY`
+- `USE_GEMINI_DOMESTIC_API`
 
 启动后可访问：
 
@@ -132,24 +140,26 @@ const val AI_COMPOSITION_URL = "http://192.168.1.20:8100/"
 
 1. 本 README
 2. [android_frontend/README.md](./android_frontend/README.md)
-3. [pc_demo_parallel_two_stage_new/README.md](./pc_demo_parallel_two_stage_new/README.md)
+3. [backend/README.md](./backend/README.md)
 4. `android_frontend/app/src/main/java/com/photoframer/ui/screens/CameraScreen.kt`
 5. `android_frontend/app/src/main/java/com/photoframer/viewmodel/CameraViewModel.kt`
-6. `pc_demo_parallel_two_stage_new/routers/composition.py`
-7. `pc_demo_parallel_two_stage_new/services/common.py`
+6. `backend/routers/composition.py`
+7. `backend/services/common.py`
 
 ## 关键事实和注意事项
 
-- `pc_demo_parallel_two_stage_new` 虽然名字还保留 “two_stage”，但代码已经是三阶段结构
+- 后端主干现在位于 `backend/`
+- 后端实际运行架构是 Stage 0 / Stage 1 / Stage 2 三阶段流水线，其中 Stage 0 当前可通过配置关闭
 - Android 前端默认优先走流式接口，流式失败后再回退普通接口
 - 画面内构图服务当前是外部 URL，不在本仓库内
-- 后端读取环境变量时当前没有自动 `load_dotenv()`，请直接在 shell 中 `export`
+- 后端 API key 从环境变量读取；provider、模型、代理、超时等运行配置主要在 `backend/config.py`
 - Android 端当前声明了 Coil 依赖，但主干实现的核心图片显示并不依赖它
 
 ## 文档入口
 
 - Android 端详细说明：[android_frontend/README.md](./android_frontend/README.md)
-- 后端详细说明：[pc_demo_parallel_two_stage_new/README.md](./pc_demo_parallel_two_stage_new/README.md)
+- 后端详细说明：[backend/README.md](./backend/README.md)
+- Prompt 实验说明：[Gemini_prompt_tests/README.md](./Gemini_prompt_tests/README.md)
 
 ## 当前适合谁看
 

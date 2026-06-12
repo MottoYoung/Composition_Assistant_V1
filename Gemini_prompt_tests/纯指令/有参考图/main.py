@@ -26,12 +26,13 @@ from prompts_config import (
     PROMPT_VERSIONS, MODEL_CONFIGS,
     generate_test_matrix, load_prompts_from_yaml, load_model_configs_from_yaml
 )
-from sync_runner import run_sync_assessment
-from report_generator import generate_report, find_latest_result_dir
 
 
 def cmd_sync(args):
     """执行同步测试（原图 + 参考图 → 操作指令）"""
+    from report_generator import generate_report, find_latest_result_dir
+    from sync_runner import run_sync_assessment
+
     print("\n" + "=" * 60)
     print("⚡ 同步测试 - 纯指令/有参考图")
     print("=" * 60)
@@ -55,6 +56,8 @@ def cmd_sync(args):
 
 def cmd_report(args):
     """生成测评报告"""
+    from report_generator import generate_report, find_latest_result_dir
+
     if args.input:
         result_dir = Path(args.input)
     else:

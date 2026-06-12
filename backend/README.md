@@ -1,0 +1,460 @@
+# PhotoFramer Backend - Three-Stage Pipeline
+
+`backend` 是当前 PhotoFramer 的后端主干。它的实际运行架构是三阶段流水线：
+
+- Stage 0：候选构图技术软预筛
+- Stage 1：构图分析、步骤生成与 `image_prompt` 产出
+- Stage 2：参考构图图生成
+
+这套后端的目标不是做最终拍摄验证，而是为前端持续产出“值得尝试的目标构图方案”。
+
+## 这套后端做什么
+
+输入是一张当前场景图，输出是若干个 `CompositionResult`。每个候选里通常包含：
+
+- `technique`
+- `technique_name`
+- `aesthetic_desc`
+- `steps`
+- `shot_spec`
+- `image_prompt`
+- `image_base64`
+- `timing`
+
+也就是说，后端输出的不只是“这张图适合三分构图”，而是：
+
+- 适不适合
+- 为什么适合
+- 用户该怎么挪手机
+- 目标画面大致长什么样
+
+## 架构概览
+
+```mermaid
+flowchart LR
+    A["上传原图"] --> B["Stage 0 软预筛"]
+    B --> C["Stage 1 构图分析"]
+    C --> D["尽早提取 image_prompt"]
+    D --> E["Stage 2 参考图生成"]
+    C --> F["解析 JSON -> CompositionResult"]
+    E --> G["补全 image_base64"]
+    F --> G
+    G --> H["去重 / 多样化"]
+    H --> I["普通响应或 SSE 流式返回"]
+```
+
+## 当前支持的构图 technique
+
+来自 `config.py` 的默认 technique 列表：
+
+- `rule_of_thirds`
+- `center_composition`
+- `leading_lines`
+- `foreground_framing`
+- `diagonal_composition`
+
+## Provider 组合方式
+
+每个阶段都可以单独切换 provider：
+
+- Stage 0：`gemini` / `qwen`
+- Stage 1：`gemini` / `qwen`
+- Stage 2：`gemini` / `qwen`
+
+因此可以自由组合，例如：
+
+- `gemini -> gemini -> gemini`
+- `gemini -> gemini -> qwen`
+- `qwen -> qwen -> gemini`
+- `qwen -> gemini -> gemini`
+
+当前 `config.py` 默认使用 Qwen 组合：
+
+- `STAGE1_PROVIDER = "qwen"`
+- `STAGE2_PROVIDER = "qwen"`
+- `STAGE0_PROVIDER = STAGE1_PROVIDER`
+
+Stage 0 当前默认关闭（`ENABLE_STAGE0 = False`），开启后才会进入预筛流程。
+
+## 目录结构
+
+```text
+backend
+├── main.py
+├── config.py
+├── requirements.txt
+├── routers
+│   ├── composition.py
+│   └── image.py
+├── schemas
+│   ├── composition.py
+│   └── image.py
+├── services
+│   ├── __init__.py
+│   ├── common.py
+│   ├── stage0_gemini_provider.py
+│   ├── stage0_qwen_provider.py
+│   ├── stage1_gemini_provider.py
+│   ├── stage1_qwen_provider.py
+│   ├── stage2_gemini_provider.py
+│   ├── stage2_qwen_provider.py
+│   ├── gemini_client_factory.py
+│   ├── gemini_profiles.py
+│   └── prompt_adapters.py
+├── prompts
+│   ├── stage0_soft_prefilter.md
+│   ├── stage1_system_instruction.md
+│   └── techniques
+└── tests
+    └── test_pipeline_guards.py
+```
+
+## 关键设计点
+
+### 1. Prompt 资产化
+
+提示词不写死在 provider 里，而是放在：
+
+- `prompts/stage1_system_instruction.md`
+- `prompts/stage0_soft_prefilter.md`
+- `prompts/techniques/*.md`
+
+这样做的好处是：
+
+- 更方便调 prompt
+- 更方便记录实验
+- 更适合做论文/答辩里的方法说明
+
+### 2. 流式 prompt 前置
+
+当前 Gemini 和 Qwen 的 Stage 1 都支持在流式输出中尽早抽取 `image_prompt`。这意味着：
+
+- 不需要等 Stage 1 全部结束
+- 只要 `image_prompt` 出来了
+- Stage 2 就可以提前启动
+
+这是这套后端降低总时延的关键优化之一。
+
+### 3. Provider 适配层
+
+不同模型的调用细节被封装在 provider 层：
+
+- Qwen 文本阶段用 OpenAI-compatible client
+- Qwen 图像阶段用 DashScope
+- Gemini 用 `google-genai`
+
+路由层不直接关心这些差异，只通过 `get_stage0_service()`、`get_stage1_service()`、`get_stage2_service()` 取服务实例。
+
+### 4. 输出契约统一
+
+不同 provider 返回的格式并不完全一样，但最后都会被收敛成统一的 schema：
+
+- `AnalysisResponse`
+- `CompositionResult`
+- `ImageGenerationResponse`
+
+前端只需要理解统一格式，不需要知道当前后端跑的是 Qwen 还是 Gemini。
+
+## 运行环境要求
+
+- Python 3.10+
+- 可访问相应模型服务的网络环境
+- 如使用官方 Gemini，可能需要代理
+
+## 安装
+
+```bash
+cd backend
+pip install -r requirements.txt
+```
+
+依赖包括：
+
+- `fastapi`
+- `uvicorn[standard]`
+- `python-multipart`
+- `openai`
+- `pillow`
+- `python-dotenv`
+- `dashscope`
+- `google-genai`
+
+注意：
+
+- 当前只从环境变量读取 API key；provider、模型、代理、超时等配置请直接修改 `config.py`
+- 代码没有自动调用 `load_dotenv()`，因此 API key 请直接在 shell 中 `export`，或者由你的运行器负责注入
+
+## 最小可运行配置
+
+### 方案一：默认 Qwen 配置
+
+当前 `config.py` 默认使用 Qwen provider，最少需要：
+
+```bash
+export DASHSCOPE_API_KEY=your_dashscope_key
+```
+
+### 方案二：官方 Gemini
+
+先在 `config.py` 中切换 provider，例如：
+
+```python
+STAGE0_PROVIDER = "gemini"
+STAGE1_PROVIDER = "gemini"
+STAGE2_PROVIDER = "gemini"
+```
+
+然后注入 key：
+
+```bash
+export GEMINI_API_KEY=your_key
+```
+
+如果使用官方 Gemini，当前代理相关配置为：
+
+- `USE_GEMINI_PROXY = True`
+- `GEMINI_PROXY_URL = "http://127.0.0.1:11087"`
+
+如果不需要代理，请在 `config.py` 中把 `USE_GEMINI_PROXY` 改为 `False`。
+
+### 方案三：国内 Gemini 兼容中转
+
+先在 `config.py` 中开启：
+
+```python
+USE_GEMINI_DOMESTIC_API = True
+GEMINI_DOMESTIC_BASE_URL = "https://your-proxy-root.example.com"
+GEMINI_DOMESTIC_API_VERSION = "v1beta"
+```
+
+然后注入 key：
+
+```bash
+export GEMINI_DOMESTIC_API_KEY=your_key
+```
+
+注意：
+
+- `GEMINI_DOMESTIC_BASE_URL` 填服务根地址或 API 根地址
+- 不要填到某个完整 `generateContent` 路径
+
+### 方案四：混合 Provider
+
+先在 `config.py` 中切换 provider，例如：
+
+```python
+STAGE0_PROVIDER = "qwen"
+STAGE1_PROVIDER = "qwen"
+STAGE2_PROVIDER = "gemini"
+```
+
+然后注入对应 key：
+
+```bash
+export DASHSCOPE_API_KEY=your_dashscope_key
+export GEMINI_API_KEY=your_gemini_key
+```
+
+## 常用配置
+
+常用配置集中在 `config.py`：
+
+- Provider：`STAGE0_PROVIDER`、`STAGE1_PROVIDER`、`STAGE2_PROVIDER`
+- 模型：`QWEN_STAGE*_MODEL`、`GEMINI_STAGE*_MODEL`
+- Stage 0：`ENABLE_STAGE0`、`STAGE0_MAX_TECHNIQUES`、`STAGE0_TEMPERATURE`、`STAGE0_TOP_P`
+- 吞吐与超时：`STAGE1_MAX_CONCURRENCY`、`STAGE1_TIMEOUT_SECONDS`、`STAGE2_TIMEOUT_SECONDS`
+- 采样参数：`MODEL_TEMPERATURE`、`MODEL_TOP_P`、`MODEL_TOP_K`、`MODEL_MAX_TOKENS`
+- Gemini 代理 / 中转：`USE_GEMINI_PROXY`、`GEMINI_PROXY_URL`、`USE_GEMINI_DOMESTIC_API`
+- Qwen 图像侧限速：`IMAGE_MAX_RATE`
+
+环境变量只用于注入敏感 key：
+
+```bash
+export GEMINI_API_KEY=your_gemini_key
+export GEMINI_DOMESTIC_API_KEY=your_domestic_key
+export DASHSCOPE_API_KEY=your_dashscope_key
+```
+
+## 运行
+
+### 开发模式
+
+```bash
+uvicorn main:app --host 0.0.0.0 --port 8100 --reload
+```
+
+### 直接运行
+
+```bash
+python main.py
+```
+
+启动后默认文档地址：
+
+- `http://localhost:8100/docs`
+- `http://localhost:8100/redoc`
+
+## 接口列表
+
+### `GET /`
+
+返回当前服务版本、stage provider / model 和 technique 列表。
+
+### `POST /composition_analyze`
+
+普通非流式三阶段入口。
+
+请求：
+
+- `multipart/form-data`
+- 字段名：`image`
+
+响应：
+
+- `AnalysisResponse`
+
+### `POST /composition_analyze_stream`
+
+SSE 流式入口，适合前端逐个接收候选结果。
+
+流式事件包括：
+
+- `analysis_started`
+- `candidate_ready`
+- `technique_skipped`
+- `candidate_duplicate_skipped`
+- `summary`
+- `[DONE]`
+
+### `POST /image_generate`
+
+仅调用当前 `STAGE2_PROVIDER` 做图像生成。
+
+### `GET /health`
+
+健康检查接口，返回当前模型与 technique 列表。
+
+## 示例请求
+
+### 普通分析
+
+```bash
+curl -X POST \
+  -F "image=@../test_images/sample.jpg" \
+  http://127.0.0.1:8100/composition_analyze
+```
+
+### 流式分析
+
+```bash
+curl -N -X POST \
+  -F "image=@../test_images/sample.jpg" \
+  http://127.0.0.1:8100/composition_analyze_stream
+```
+
+### 仅调用 Stage 2
+
+```bash
+curl -X POST http://127.0.0.1:8100/image_generate \
+  -H "Content-Type: application/json" \
+  -d '{
+    "requests": [
+      {
+        "technique_id": "rule_of_thirds",
+        "image_prompt": "Reframe the scene using rule of thirds.",
+        "original_image_b64": null
+      }
+    ]
+  }'
+```
+
+## 响应特点
+
+返回的 `compositions[]` 统一包含：
+
+- `steps`
+- `shot_spec`
+- `image_prompt`
+- `image_base64`
+- `timing`
+
+这就是 Android 前端可以不关心具体 provider 差异的原因。
+
+## 运行时特性
+
+### 1. 上传大小限制
+
+当前最大上传大小约为：
+
+- 12 MB
+
+### 2. 候选去重与多样化
+
+路由层会根据：
+
+- steps 签名
+- viewpoint 需求
+- 主体中心
+- 主体大小
+- technique 本身
+
+做近重复判断，避免前端收到一堆非常相似的候选。
+
+### 3. Gemini 模型能力适配
+
+`gemini_profiles.py` 会根据不同 Gemini 模型决定是否下发：
+
+- `top_k`
+- `max_output_tokens`
+- `image_config`
+- `image_size`
+- `thinking_config`
+
+这是为了减少不同模型族之间的参数不兼容问题。
+
+## 测试
+
+运行当前可见测试：
+
+```bash
+pytest tests/test_pipeline_guards.py
+```
+
+## 常见问题
+
+### 1. 为什么明明设置了 `.env`，服务还是读不到 key
+
+因为当前代码没有自动调用 `load_dotenv()`。请直接在 shell 中 `export` API key，或用你的进程管理器注入。
+
+### 2. 为什么官方 Gemini 启动时报代理问题
+
+因为 `USE_GEMINI_PROXY` 当前默认值是 `True`。如果你不需要代理，请在 `config.py` 中把它改为 `False`。
+
+### 3. 为什么说是三阶段，但 Stage 0 好像没运行
+
+因为 `config.py` 里当前默认：
+
+```python
+ENABLE_STAGE0 = False
+```
+
+后端代码已经包含：
+
+- Stage 0 软预筛
+- Stage 1 构图分析
+- Stage 2 参考图生成
+
+但只有把 `ENABLE_STAGE0` 改为 `True` 后，Stage 0 才会真正参与运行。
+
+### 4. 为什么前端默认地址和本地端口对不上
+
+因为 Android 前端默认指向的是现有公网部署地址，而本地开发默认端口是：
+
+- `8100`
+
+联调时需要手动改前端 `ApiConfig.kt`。
+
+## 相关文档
+
+- 仓库总说明：[../README.md](../README.md)
+- Android 前端说明：[../android_frontend/README.md](../android_frontend/README.md)
