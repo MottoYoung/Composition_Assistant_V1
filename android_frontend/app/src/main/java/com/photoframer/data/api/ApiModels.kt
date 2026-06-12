@@ -30,13 +30,7 @@ data class ShotSpec(
     val targetSubjectCenter: List<Float>? = null,
 
     @SerializedName("target_subject_size")
-    val targetSubjectSize: Float? = null,
-
-    @SerializedName("camera_move_summary")
-    val cameraMoveSummary: String? = null,
-
-    @SerializedName("validation_notes")
-    val validationNotes: String? = null
+    val targetSubjectSize: Float? = null
 )
 
 /**

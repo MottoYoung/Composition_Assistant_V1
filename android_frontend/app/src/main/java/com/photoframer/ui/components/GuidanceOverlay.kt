@@ -77,10 +77,11 @@ fun GuidanceOverlay(
     )
 
     val isCompleted = validationResult?.isCompleted == true
-    val isShiftStep = step?.actionType.equals("shift", ignoreCase = true)
-    val isZoomStep = step?.actionType.equals("zoom", ignoreCase = true)
+    val actionType = step?.actionType?.normalizedActionType()
+    val isShiftStep = actionType == "shift"
+    val isZoomStep = actionType == "zoom"
     val isViewChangeStep = step?.actionType?.isViewpointActionType() == true
-    val isLevelStep = step?.actionType.equals("level", ignoreCase = true)
+    val isLevelStep = actionType == "level"
 
     val rawTx: Float
     val rawTy: Float

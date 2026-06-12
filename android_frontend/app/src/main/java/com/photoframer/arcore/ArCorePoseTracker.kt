@@ -7,6 +7,7 @@ import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
 import com.google.ar.core.Config
+import com.google.ar.core.Pose
 import com.google.ar.core.Session
 import com.google.ar.core.TrackingState
 import java.util.concurrent.atomic.AtomicInteger
@@ -196,7 +197,7 @@ class ArCorePoseTracker(
             applyDisplayGeometry(session)
             session.resume()
 
-            var baselineTranslation: FloatArray? = null
+            var baselinePose: Pose? = null
 
             while (
                 running.get() &&
@@ -208,16 +209,19 @@ class ArCorePoseTracker(
                 val frame = session.update()
                 val camera = frame.camera
                 if (camera.trackingState == TrackingState.TRACKING) {
-                    val translation = camera.pose.translation
-                    if (baselineTranslation == null) {
-                        baselineTranslation = translation.copyOf()
+                    val currentPose = camera.pose
+                    if (baselinePose == null) {
+                        baselinePose = currentPose
                     }
-                    val base = baselineTranslation ?: translation
+                    val localDelta = computeBaselineLocalDelta(
+                        baselinePose = baselinePose ?: currentPose,
+                        currentPose = currentPose
+                    )
                     publishArCoreSample(
-                        lateralMeters = translation[0] - base[0],
-                        verticalMeters = translation[1] - base[1],
-                        // 相机朝前一般对应 -Z，这里转成“前进为正”
-                        forwardMeters = -(translation[2] - base[2])
+                        lateralMeters = localDelta[0],
+                        verticalMeters = localDelta[1],
+                        // Camera local forward is -Z; expose forward as positive.
+                        forwardMeters = -localDelta[2]
                     )
                 } else {
                     publishMotionOnlySample(confidence = 0.42f)
@@ -244,6 +248,59 @@ class ArCorePoseTracker(
                 arCoreFuture = null
             }
         }
+    }
+
+    private fun computeBaselineLocalDelta(
+        baselinePose: Pose,
+        currentPose: Pose
+    ): FloatArray {
+        val baselineTranslation = baselinePose.translation
+        val currentTranslation = currentPose.translation
+        val worldDelta = floatArrayOf(
+            currentTranslation[0] - baselineTranslation[0],
+            currentTranslation[1] - baselineTranslation[1],
+            currentTranslation[2] - baselineTranslation[2]
+        )
+        return rotateVectorByInverseQuaternion(
+            vector = worldDelta,
+            quaternion = baselinePose.rotationQuaternion
+        )
+    }
+
+    private fun rotateVectorByInverseQuaternion(
+        vector: FloatArray,
+        quaternion: FloatArray
+    ): FloatArray {
+        val inverseQuaternion = floatArrayOf(
+            -quaternion[0],
+            -quaternion[1],
+            -quaternion[2],
+            quaternion[3]
+        )
+        return rotateVectorByQuaternion(vector, inverseQuaternion)
+    }
+
+    private fun rotateVectorByQuaternion(
+        vector: FloatArray,
+        quaternion: FloatArray
+    ): FloatArray {
+        val qx = quaternion[0]
+        val qy = quaternion[1]
+        val qz = quaternion[2]
+        val qw = quaternion[3]
+        val vx = vector[0]
+        val vy = vector[1]
+        val vz = vector[2]
+
+        val tx = 2f * (qy * vz - qz * vy)
+        val ty = 2f * (qz * vx - qx * vz)
+        val tz = 2f * (qx * vy - qy * vx)
+
+        return floatArrayOf(
+            vx + qw * tx + (qy * tz - qz * ty),
+            vy + qw * ty + (qz * tx - qx * tz),
+            vz + qw * tz + (qx * ty - qy * tx)
+        )
     }
 
     private fun applyDisplayGeometry(session: Session) {

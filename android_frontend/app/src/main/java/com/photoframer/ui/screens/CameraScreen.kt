@@ -9,6 +9,8 @@ import android.os.VibratorManager
 import android.util.Log
 import android.view.Surface
 import android.view.HapticFeedbackConstants
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.CameraControl
 import androidx.camera.core.CameraInfo
 import androidx.camera.core.CameraSelector
@@ -118,6 +120,7 @@ import com.photoframer.ui.theme.TextSecondary
 import com.photoframer.utils.CameraLensManager
 import com.photoframer.utils.CameraLensOption
 import com.photoframer.utils.CameraZoomController
+import com.photoframer.utils.GalleryPermissionUtils
 import com.photoframer.utils.GalleryUtils
 import com.photoframer.utils.ImageFileDecoder
 import com.photoframer.utils.ImageSaver
@@ -167,6 +170,9 @@ fun CameraScreen(
     var flashMode by remember { mutableStateOf(FlashMode.OFF) }
     var gridEnabled by remember { mutableStateOf(false) }
     var lastPhotoThumbnail by remember { mutableStateOf<Bitmap?>(null) }
+    var hasGalleryReadPermission by remember {
+        mutableStateOf(GalleryPermissionUtils.hasGalleryReadPermission(context))
+    }
     var availableLenses by remember { mutableStateOf(CameraLensManager.getAvailableLenses(context)) }
     var selectedLensIndex by remember { mutableIntStateOf(0) }
     var desiredEffectiveZoom by remember { mutableFloatStateOf(1f) }
@@ -216,6 +222,25 @@ fun CameraScreen(
         displayedZoomText = CameraZoomController.formatZoomRatio(displayedZoom),
         isRulerVisible = isZoomRulerVisible
     )
+    fun refreshLatestThumbnail(canReadGallery: Boolean = hasGalleryReadPermission) {
+        if (!canReadGallery) return
+        scope.launch {
+            val latestThumbnail = withContext(Dispatchers.IO) {
+                GalleryUtils.loadLatestThumbnail(context)
+            }
+            if (latestThumbnail != null) {
+                lastPhotoThumbnail = latestThumbnail
+            }
+        }
+    }
+
+    val galleryPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestMultiplePermissions()
+    ) {
+        val granted = GalleryPermissionUtils.hasGalleryReadPermission(context)
+        hasGalleryReadPermission = granted
+        refreshLatestThumbnail(canReadGallery = granted)
+    }
 
     fun performHaptic(constant: Int) {
         view.performHapticFeedback(constant)
@@ -363,17 +388,6 @@ fun CameraScreen(
         }.takeIf { it >= 0 } ?: 0
     }
 
-    fun refreshLatestThumbnail() {
-        scope.launch {
-            val latestThumbnail = withContext(Dispatchers.IO) {
-                GalleryUtils.loadLatestThumbnail(context)
-            }
-            if (latestThumbnail != null) {
-                lastPhotoThumbnail = latestThumbnail
-            }
-        }
-    }
-
     fun openGallery() {
         GalleryUtils.openGallery(context)
     }
@@ -460,7 +474,13 @@ fun CameraScreen(
         selectedLensIndex = defaultLensIndex(availableLenses)
         desiredEffectiveZoom =
             availableLenses.getOrNull(selectedLensIndex)?.targetZoomRatio ?: 1f
-        refreshLatestThumbnail()
+        val granted = GalleryPermissionUtils.hasGalleryReadPermission(context)
+        hasGalleryReadPermission = granted
+        if (granted) {
+            refreshLatestThumbnail(canReadGallery = true)
+        } else {
+            galleryPermissionLauncher.launch(GalleryPermissionUtils.permissionsToRequest())
+        }
     }
 
     LaunchedEffect(selectedLensIndex, cameraInfo, desiredEffectiveZoom) {

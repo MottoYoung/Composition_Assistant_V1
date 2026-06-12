@@ -35,6 +35,14 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 
+internal fun analysisErrorActionText(message: String): String {
+    return if (message.contains("服务") && message.contains("不可用")) {
+        "返回"
+    } else {
+        "重试"
+    }
+}
+
 /**
  * 相机 ViewModel
  * 管理 UI 状态和业务逻辑
@@ -183,9 +191,10 @@ class CameraViewModel : ViewModel() {
                                 }
                             }
                             .onFailure { error ->
+                                val message = error.message ?: "网络错误，请检查连接"
                                 _uiState.value = CameraUiState.Error(
-                                    error.message ?: "网络错误，请检查连接",
-                                    actionText = "重试"
+                                    message = message,
+                                    actionText = analysisErrorActionText(message)
                                 )
                             }
                     }
@@ -226,9 +235,10 @@ class CameraViewModel : ViewModel() {
             try {
                 val result = repository.analyzeInFrameComposition(preparedImage.file)
                 val response = result.getOrElse { error ->
+                    val message = error.message ?: "画面内构图分析失败"
                     _uiState.value = CameraUiState.Error(
-                        error.message ?: "画面内构图分析失败",
-                        actionText = "重试"
+                        message = message,
+                        actionText = analysisErrorActionText(message)
                     )
                     return@launch
                 }
@@ -405,11 +415,11 @@ class CameraViewModel : ViewModel() {
 
     private fun simplifyShiftGuideText(step: CompositionStep): String {
         return when (step.direction.trim().lowercase()) {
-            "left" -> "再把主体往左对进圆圈"
-            "right" -> "再把主体往右对进圆圈"
-            "up" -> "再把主体往上对进圆圈"
-            "down" -> "再把主体往下对进圆圈"
-            else -> "再把主体对进圆圈"
+            "left" -> "向左移动手机，让十字准星和中心圈对齐"
+            "right" -> "向右移动手机，让十字准星和中心圈对齐"
+            "up" -> "向上移动手机，让十字准星和中心圈对齐"
+            "down" -> "向下移动手机，让十字准星和中心圈对齐"
+            else -> "移动手机，让十字准星和中心圈对齐"
         }
     }
 
@@ -429,6 +439,13 @@ class CameraViewModel : ViewModel() {
         val centerY = targetCenter[1]
         val deltaX = centerX - 0.5f
         val deltaY = centerY - 0.5f
+        val centerOffsetThreshold = 0.04f
+        if (kotlin.math.abs(deltaX) < centerOffsetThreshold &&
+            kotlin.math.abs(deltaY) < centerOffsetThreshold
+        ) {
+            return null
+        }
+
         val direction = if (kotlin.math.abs(deltaX) >= kotlin.math.abs(deltaY)) {
             if (deltaX >= 0f) "Right" else "Left"
         } else {
@@ -439,7 +456,7 @@ class CameraViewModel : ViewModel() {
             stepOrder = 2,
             actionType = "Shift",
             direction = direction,
-            guideText = "再把主体对进圆圈"
+            guideText = "移动手机，让十字准星和中心圈对齐"
         )
     }
 
