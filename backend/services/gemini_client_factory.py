@@ -99,13 +99,20 @@ def _with_gemini_proxy_env():
                 os.environ[key] = value
 
 
-def _build_domestic_http_options() -> types.HttpOptions:
+def _timeout_ms(timeout_seconds: float | None) -> int | None:
+    if timeout_seconds is None or timeout_seconds <= 0:
+        return None
+    return max(1, int(timeout_seconds * 1000))
+
+
+def _build_domestic_http_options(timeout_seconds: float | None = None) -> types.HttpOptions:
     return types.HttpOptions(
         base_url=_normalize_base_url(GEMINI_DOMESTIC_BASE_URL),
         api_version=GEMINI_DOMESTIC_API_VERSION or "v1beta",
         headers={
             "Authorization": f"Bearer {GEMINI_DOMESTIC_API_KEY.strip()}",
         },
+        timeout=_timeout_ms(timeout_seconds),
     )
 
 
@@ -116,7 +123,7 @@ def _strip_sdk_api_key_header(client: genai.Client) -> genai.Client:
     return client
 
 
-def create_gemini_client() -> genai.Client:
+def create_gemini_client(timeout_seconds: float | None = None) -> genai.Client:
     proxy_enabled = _proxy_enabled()
     if USE_GEMINI_DOMESTIC_API:
         if not GEMINI_DOMESTIC_BASE_URL:
@@ -138,7 +145,7 @@ def create_gemini_client() -> genai.Client:
         with _without_official_gemini_env(), _with_gemini_proxy_env():
             client = genai.Client(
                 api_key=GEMINI_DOMESTIC_API_KEY.strip(),
-                http_options=_build_domestic_http_options()
+                http_options=_build_domestic_http_options(timeout_seconds)
             )
         client = _strip_sdk_api_key_header(client)
         print(
@@ -156,7 +163,10 @@ def create_gemini_client() -> genai.Client:
         flush=True,
     )
     with _with_gemini_proxy_env():
-        return genai.Client(api_key=GEMINI_API_KEY)
+        return genai.Client(
+            api_key=GEMINI_API_KEY,
+            http_options=types.HttpOptions(timeout=_timeout_ms(timeout_seconds)),
+        )
 
 
 def describe_gemini_backend() -> str:

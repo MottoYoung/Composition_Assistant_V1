@@ -24,6 +24,7 @@ from services.gemini_client_factory import (
     is_official_gemini_api_enabled,
     probe_gemini_proxy_connectivity,
 )
+from services.stage2_openrouter_provider import probe_openrouter_proxy_connectivity
 
 app = FastAPI(
     title="PhotoFramer API - Two-Stage New",
@@ -32,7 +33,7 @@ app = FastAPI(
 
 - Stage 0（软预筛）: `qwen` / `gemini`
 - Stage 1（构图分析）: `qwen` / `gemini`
-- Stage 2（参考图生成）: `qwen` / `gemini`
+- Stage 2（参考图生成）: `qwen` / `gemini` / `openrouter`
 
 推荐通过环境变量切换：
 
@@ -97,6 +98,10 @@ async def startup_event():
     ) and is_official_gemini_api_enabled():
         ok, message = await asyncio.to_thread(probe_gemini_proxy_connectivity)
         prefix = "   ✅ Gemini 代理自检:" if ok else "   ❌ Gemini 代理自检:"
+        print(f"{prefix} {message}")
+    if STAGE2_PROVIDER == "openrouter":
+        ok, message = await asyncio.to_thread(probe_openrouter_proxy_connectivity)
+        prefix = "   ✅ OpenRouter 代理自检:" if ok else "   ❌ OpenRouter 代理自检:"
         print(f"{prefix} {message}")
     print("   文档: http://localhost:8100/docs")
     print("=" * 60)

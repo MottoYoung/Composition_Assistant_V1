@@ -60,6 +60,7 @@ from schemas.composition import ShotSpec  # noqa: E402
 from services.common import Stage1Result, to_composition_result  # noqa: E402
 from services import stage1_qwen_provider  # noqa: E402
 from services import stage2_qwen_provider  # noqa: E402
+from services import stage2_openrouter_provider  # noqa: E402
 
 
 class _Stage0Stub:
@@ -103,6 +104,40 @@ class CompositionPipelineGuardTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(result.success)
         self.assertIsNone(result.image_base64)
         self.assertTrue(result.error_message)
+
+    def test_openrouter_stage2_builds_reference_image_payload(self):
+        with patch.object(stage2_openrouter_provider, "OPENROUTER_API_KEY", "test-key"):
+            provider = stage2_openrouter_provider.OpenRouterStage2Provider()
+
+        request = stage2_openrouter_provider.ImageRequest(
+            technique_id="rule_of_thirds",
+            image_prompt="camera-only reframing",
+            original_image_b64="data:image/jpeg;base64,abc123",
+        )
+
+        payload = provider._build_payload(request)
+
+        self.assertEqual(payload["model"], stage2_openrouter_provider.OPENROUTER_STAGE2_MODEL)
+        self.assertEqual(payload["n"], 1)
+        self.assertEqual(payload["resolution"], "1K")
+        self.assertEqual(
+            payload["input_references"][0]["image_url"]["url"],
+            "data:image/jpeg;base64,abc123",
+        )
+
+    def test_openrouter_stage2_extracts_base64_data_url(self):
+        payload = {
+            "data": [
+                {
+                    "b64_json": "ZmFrZQ==",
+                    "media_type": "image/webp",
+                }
+            ]
+        }
+
+        image_base64 = stage2_openrouter_provider._image_data_url_from_response(payload)
+
+        self.assertEqual(image_base64, "data:image/webp;base64,ZmFrZQ==")
 
     def test_qwen_stage1_stream_skips_empty_choice_chunks(self):
         provider = object.__new__(stage1_qwen_provider.QwenStage1Provider)

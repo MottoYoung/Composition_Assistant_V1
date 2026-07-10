@@ -4,7 +4,7 @@
 目标：
 1. Stage 0（软预筛）、Stage 1（分析）与 Stage 2（生图）可独立切换 provider / model
 2. 默认使用 Gemini 组合，避免 Qwen 官方速率限制影响默认体验
-3. 同时支持 Gemini 作为预筛器、分析器或生图器接入
+3. Stage 2 支持 Gemini、Qwen、OpenRouter 三种 provider
 """
 
 import os
@@ -16,13 +16,14 @@ def _api_key(name: str) -> str:
     return os.environ.get(name, "").strip()
 
 
-# ==================== Provider（qwen/gemini）选择 ==================== #
+# ==================== Provider（qwen/gemini/openrouter）选择 ==================== #
 # STAGE1_PROVIDER = "gemini"
 # STAGE2_PROVIDER = "gemini"
 
 
 STAGE1_PROVIDER = "qwen"
 STAGE2_PROVIDER = "qwen"
+# STAGE2_PROVIDER = "openrouter"
 
 # Stage 0 是预筛阶段，默认跟随 Stage 1，也可以单独指定为 "gemini" 或 "qwen"。
 STAGE0_PROVIDER = STAGE1_PROVIDER
@@ -32,6 +33,7 @@ STAGE0_PROVIDER = STAGE1_PROVIDER
 DASHSCOPE_API_KEY = _api_key("DASHSCOPE_API_KEY")
 GEMINI_API_KEY = _api_key("GEMINI_API_KEY")
 GEMINI_DOMESTIC_API_KEY = _api_key("GEMINI_DOMESTIC_API_KEY")
+OPENROUTER_API_KEY = _api_key("OPENROUTER_API_KEY")
 
 
 # ==================== 网络 / 代理配置 ==================== #
@@ -42,6 +44,10 @@ IMAGE_DASHSCOPE_BASE_URL = "https://dashscope.aliyuncs.com/api/v1"
 # 本地代理默认走 127.0.0.1:11087；如果你的代理是 socks，请改成 socks5://127.0.0.1:11087
 USE_GEMINI_PROXY = True
 GEMINI_PROXY_URL = "http://127.0.0.1:11087"
+
+# OpenRouter 默认复用 Gemini 的本地代理。
+USE_OPENROUTER_PROXY = True
+OPENROUTER_PROXY_URL = os.environ.get("OPENROUTER_PROXY_URL", GEMINI_PROXY_URL).strip()
 
 # Gemini 国内中转配置：
 # - 关闭时：继续使用官方 Gemini API（GEMINI_API_KEY）
@@ -69,6 +75,7 @@ GEMINI_STAGE2_MODEL = "gemini-2.5-flash-image"
 # - gemini-3.1-flash-image-preview
 # - gemini-3-pro-image-preview
 GEMINI_STAGE0_MODEL = "gemini-3.1-flash-lite"
+OPENROUTER_STAGE2_MODEL = "google/gemini-3.1-flash-lite-image"
 
 
 def get_stage0_model_name() -> str:
@@ -80,7 +87,11 @@ def get_stage1_model_name() -> str:
 
 
 def get_stage2_model_name() -> str:
-    return GEMINI_STAGE2_MODEL if STAGE2_PROVIDER == "gemini" else QWEN_STAGE2_MODEL
+    if STAGE2_PROVIDER == "gemini":
+        return GEMINI_STAGE2_MODEL
+    if STAGE2_PROVIDER == "openrouter":
+        return OPENROUTER_STAGE2_MODEL
+    return QWEN_STAGE2_MODEL
 
 
 # ==================== 路径配置 ==================== #
@@ -163,6 +174,7 @@ GEMINI_STAGE1_RESPONSE_MIME_TYPE = "application/json"
 GEMINI_STAGE1_FORCE_DISABLE_MAX_OUTPUT_TOKENS = True
 
 STAGE1_MAX_CONCURRENCY = 5
+STAGE0_TIMEOUT_SECONDS = 12.0
 STAGE1_TIMEOUT_SECONDS = 20.0
 STAGE2_TIMEOUT_SECONDS = 40.0
 
@@ -184,3 +196,10 @@ GEMINI_STAGE2_FORCE_DISABLE_MAX_OUTPUT_TOKENS = True
 GEMINI_STAGE2_MAX_CONCURRENCY = 2
 GEMINI_STAGE2_MAX_RETRIES = 2
 GEMINI_STAGE2_RETRY_BASE_DELAY_MS = 450
+
+# OpenRouter Stage 2 专用参数。
+OPENROUTER_IMAGE_API_URL = "https://openrouter.ai/api/v1/images"
+OPENROUTER_STAGE2_RESOLUTION = os.environ.get("OPENROUTER_STAGE2_RESOLUTION", "1K").strip() or "1K"
+OPENROUTER_STAGE2_ASPECT_RATIO = os.environ.get("OPENROUTER_STAGE2_ASPECT_RATIO", "").strip()
+OPENROUTER_STAGE2_MAX_CONCURRENCY = 2
+OPENROUTER_STAGE2_TIMEOUT_SECONDS = 20.0

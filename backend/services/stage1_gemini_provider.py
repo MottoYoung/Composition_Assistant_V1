@@ -24,6 +24,7 @@ from config import (
     GEMINI_STAGE1_TOP_K,
     GEMINI_STAGE1_TOP_P,
     MODEL_THINKING_BUDGET,
+    STAGE1_TIMEOUT_SECONDS,
     SYSTEM_INSTRUCTION,
     TECHNIQUE_CONFIGS,
 )
@@ -51,7 +52,7 @@ class GeminiStage1Provider:
     supports_prompt_streaming_pipeline = True
 
     def __init__(self):
-        self.client = create_gemini_client()
+        self.client = create_gemini_client(timeout_seconds=STAGE1_TIMEOUT_SECONDS)
         self.profile = get_gemini_model_profile(self.model_name)
         print(f"✅ GeminiStage1Provider 初始化成功 [{describe_gemini_backend()}]")
 

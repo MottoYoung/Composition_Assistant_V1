@@ -21,6 +21,7 @@ from config import (
     GEMINI_STAGE2_TEMPERATURE,
     GEMINI_STAGE2_TOP_K,
     GEMINI_STAGE2_TOP_P,
+    STAGE2_TIMEOUT_SECONDS,
 )
 from schemas.image import ImageRequest, ImageResult
 from services.common import Stage2Timing, log_stage2_finish, now_perf
@@ -40,7 +41,7 @@ class GeminiStage2Provider:
         print(f"✅ GeminiStage2Provider 初始化成功 [{describe_gemini_backend()}]")
 
     def _create_client(self):
-        return create_gemini_client()
+        return create_gemini_client(timeout_seconds=STAGE2_TIMEOUT_SECONDS)
 
     def _build_contents(self, request: ImageRequest):
         contents: List[object] = []

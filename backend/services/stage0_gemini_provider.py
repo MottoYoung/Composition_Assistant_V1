@@ -13,6 +13,7 @@ from PIL import Image
 from config import (
     ENABLE_STAGE0,
     GEMINI_STAGE0_MODEL,
+    STAGE0_TIMEOUT_SECONDS,
     STAGE0_MAX_TECHNIQUES,
     STAGE0_SOFT_PREFILTER_PROMPT_TEMPLATE,
     STAGE0_TEMPERATURE,
@@ -28,7 +29,7 @@ class GeminiStage0Provider:
     model_name = GEMINI_STAGE0_MODEL
 
     def __init__(self):
-        self.client = create_gemini_client()
+        self.client = create_gemini_client(timeout_seconds=STAGE0_TIMEOUT_SECONDS)
         print(f"✅ GeminiStage0Provider 初始化成功 [{describe_gemini_backend()}]")
 
     def prepare_image_payload(self, image_bytes: bytes) -> tuple[bytes, str, str]:

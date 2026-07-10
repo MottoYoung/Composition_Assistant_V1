@@ -14,6 +14,7 @@ from config import (
     QWEN_STAGE0_ENABLE_THINKING,
     QWEN_STAGE0_MODEL,
     QWEN_STAGE0_THINKING_BUDGET,
+    STAGE0_TIMEOUT_SECONDS,
     STAGE0_MAX_TECHNIQUES,
     STAGE0_SOFT_PREFILTER_PROMPT_TEMPLATE,
     STAGE0_TEMPERATURE,
@@ -41,6 +42,8 @@ class QwenStage0Provider:
         self.client = OpenAI(
             api_key=DASHSCOPE_API_KEY,
             base_url=DASHSCOPE_BASE_URL,
+            timeout=STAGE0_TIMEOUT_SECONDS,
+            max_retries=0,
         )
         print("✅ QwenStage0Provider 初始化成功")
 
