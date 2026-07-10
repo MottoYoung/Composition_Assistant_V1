@@ -211,7 +211,7 @@ def sanitize_composition_steps(raw_steps: Any) -> List[CompositionStep]:
                 guide_text=str(raw_step.get("guide_text") or "").strip(),
             )
         )
-        if len(steps) >= 3:
+        if len(steps) >= 4:
             break
     return steps
 

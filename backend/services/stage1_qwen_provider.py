@@ -19,6 +19,7 @@ from config import (
     STAGE1_TIMEOUT_SECONDS,
     SYSTEM_INSTRUCTION,
     TECHNIQUE_CONFIGS,
+    get_stage1_task_config,
 )
 from schemas import CompositionResult
 from services.common import (
@@ -57,7 +58,7 @@ class QwenStage1Provider:
         return processed, mime, image_to_data_url(processed, mime)
 
     def _build_messages(self, technique_id: str, image_data_url: str) -> list:
-        technique_config = TECHNIQUE_CONFIGS[technique_id]
+        technique_config = get_stage1_task_config(technique_id)
         prompt_text = technique_config.user_prompt
         if not QWEN_STAGE1_ENABLE_THINKING:
             prompt_text = prompt_text.rstrip() + "\n/no_think"
@@ -154,7 +155,7 @@ class QwenStage1Provider:
                         {
                             "event": "prompt_ready",
                             "technique": technique_id,
-                            "technique_name": TECHNIQUE_CONFIGS[technique_id].name,
+                            "technique_name": get_stage1_task_config(technique_id).name,
                             "image_prompt": prompt,
                             "prompt_ready_ms": round(timing.prompt_ms or 0.0),
                         },
@@ -238,7 +239,7 @@ class QwenStage1Provider:
         parsed_json = parse_json_from_text(full_content)
         result = build_stage1_result(
             technique_id=technique_id,
-            technique_name=TECHNIQUE_CONFIGS[technique_id].name,
+            technique_name=get_stage1_task_config(technique_id).name,
             start_time=start_time,
             end_time=end_time,
             start_ts=start_ts,
@@ -272,7 +273,7 @@ class QwenStage1Provider:
             end_ts = now_perf()
             return Stage1Result(
                 technique_id=technique_id,
-                technique_name=TECHNIQUE_CONFIGS[technique_id].name,
+                technique_name=get_stage1_task_config(technique_id).name,
                 start_time=start_time.isoformat(),
                 end_time=datetime.now().isoformat(),
                 response_time_ms=(end_ts - start_ts) * 1000,
@@ -360,7 +361,7 @@ class QwenStage1Provider:
                     {
                         "event": "technique_not_applicable",
                         "technique": technique_id,
-                        "technique_name": TECHNIQUE_CONFIGS[technique_id].name,
+                            "technique_name": get_stage1_task_config(technique_id).name,
                         "response_time_ms": result.response_time_ms,
                     }
                 )

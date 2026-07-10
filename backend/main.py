@@ -10,11 +10,17 @@ from config import (
     GEMINI_STAGE1_FORCE_MINIMAL_THINKING,
     GEMINI_STAGE1_THINKING_BUDGET,
     GEMINI_STAGE1_THINKING_LEVEL,
+    PHOTOGRAPHER_EYE_DIRECTION_CONFIGS,
+    PHOTOGRAPHER_EYE_DIRECTION_MODE,
+    PROMPT_SET,
     STAGE0_PROVIDER,
+    STAGE0_SOFT_PREFILTER_PROMPT_PATH,
     QWEN_STAGE1_ENABLE_THINKING,
     STAGE1_PROVIDER,
+    STAGE1_SYSTEM_PROMPT_PATH,
     STAGE2_PROVIDER,
     TECHNIQUE_CONFIGS,
+    TECHNIQUE_PROMPT_DIR,
     get_stage0_model_name,
     get_stage1_model_name,
     get_stage2_model_name,
@@ -35,12 +41,10 @@ app = FastAPI(
 - Stage 1（构图分析）: `qwen` / `gemini`
 - Stage 2（参考图生成）: `qwen` / `gemini` / `openrouter`
 
-推荐通过环境变量切换：
+Provider 默认在 `config.py` 中修改；prompt set 可通过 `PROMPT_SET` 环境变量切换：
 
 ```bash
-export STAGE0_PROVIDER=qwen
-export STAGE1_PROVIDER=qwen
-export STAGE2_PROVIDER=gemini
+PROMPT_SET=self_written uvicorn main:app --reload --port 8100
 ```
 """,
     version="2.0.0",
@@ -65,6 +69,12 @@ async def root():
     return {
         "service": "PhotoFramer API - Two-Stage New",
         "version": "2.0.0",
+        "prompt_set": PROMPT_SET,
+        "prompts": {
+            "stage0": STAGE0_SOFT_PREFILTER_PROMPT_PATH,
+            "stage1": STAGE1_SYSTEM_PROMPT_PATH,
+            "techniques": TECHNIQUE_PROMPT_DIR,
+        },
         "stage0_provider": STAGE0_PROVIDER,
         "stage0_model": get_stage0_model_name(),
         "stage1_provider": STAGE1_PROVIDER,
@@ -72,6 +82,10 @@ async def root():
         "stage2_provider": STAGE2_PROVIDER,
         "stage2_model": get_stage2_model_name(),
         "techniques": list(TECHNIQUE_CONFIGS.keys()),
+        "photographer_eye_direction_mode": PHOTOGRAPHER_EYE_DIRECTION_MODE,
+        "photographer_eye_directions": list(PHOTOGRAPHER_EYE_DIRECTION_CONFIGS.keys())
+        if PHOTOGRAPHER_EYE_DIRECTION_MODE
+        else [],
         "docs": "/docs",
     }
 
@@ -80,6 +94,11 @@ async def root():
 async def startup_event():
     print("=" * 60)
     print("🚀 PhotoFramer API v2.0 (Three-Stage Flow) 启动")
+    print(f"   Prompt set: {PROMPT_SET}")
+    print(f"   Photographer eye directions: {PHOTOGRAPHER_EYE_DIRECTION_MODE}")
+    print(f"   Stage 0 prompt: {STAGE0_SOFT_PREFILTER_PROMPT_PATH}")
+    print(f"   Stage 1 prompt: {STAGE1_SYSTEM_PROMPT_PATH}")
+    print(f"   Technique prompts: {TECHNIQUE_PROMPT_DIR}")
     print(f"   Stage 0: {STAGE0_PROVIDER} / {get_stage0_model_name()}")
     print(f"   Stage 1: {STAGE1_PROVIDER} / {get_stage1_model_name()}")
     print(f"   Stage 2: {STAGE2_PROVIDER} / {get_stage2_model_name()}")

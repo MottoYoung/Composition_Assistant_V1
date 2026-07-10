@@ -384,7 +384,7 @@ class CameraViewModel : ViewModel() {
             }
         }
 
-        return renumberSteps(normalized.take(3))
+        return renumberSteps(normalized.take(4))
     }
 
     private fun simplifyViewpointGuideText(step: CompositionStep): String {

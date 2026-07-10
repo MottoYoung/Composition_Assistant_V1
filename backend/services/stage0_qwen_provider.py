@@ -11,17 +11,20 @@ from config import (
     DASHSCOPE_API_KEY,
     DASHSCOPE_BASE_URL,
     ENABLE_STAGE0,
+    PHOTOGRAPHER_EYE_DIRECTION_MODE,
     QWEN_STAGE0_ENABLE_THINKING,
     QWEN_STAGE0_MODEL,
     QWEN_STAGE0_THINKING_BUDGET,
-    STAGE0_TIMEOUT_SECONDS,
     STAGE0_MAX_TECHNIQUES,
     STAGE0_SOFT_PREFILTER_PROMPT_TEMPLATE,
     STAGE0_TEMPERATURE,
+    STAGE0_TIMEOUT_SECONDS,
     STAGE0_TOP_P,
     TECHNIQUE_CONFIGS,
+    TechniqueConfig,
 )
 from services.common import image_to_data_url, now_perf, parse_json_from_text, prepare_image_bytes
+from services.photographer_eye_tasks import build_direction_tasks, direction_candidates_text
 
 
 def _first_message_content(response) -> str:
@@ -52,13 +55,19 @@ class QwenStage0Provider:
         return processed, mime, image_to_data_url(processed, mime)
 
     def _build_prompt(self, techniques: List[str]) -> str:
-        technique_lines = [
-            f'- "{technique_id}": {TECHNIQUE_CONFIGS[technique_id].name}'
-            for technique_id in techniques
-        ]
+        if PHOTOGRAPHER_EYE_DIRECTION_MODE:
+            candidate_techniques = direction_candidates_text()
+            max_techniques = min(4, STAGE0_MAX_TECHNIQUES)
+        else:
+            technique_lines = [
+                f'- "{technique_id}": {TECHNIQUE_CONFIGS[technique_id].name}'
+                for technique_id in techniques
+            ]
+            candidate_techniques = "\n".join(technique_lines)
+            max_techniques = min(STAGE0_MAX_TECHNIQUES, len(techniques))
         prompt = STAGE0_SOFT_PREFILTER_PROMPT_TEMPLATE.format(
-            max_techniques=min(STAGE0_MAX_TECHNIQUES, len(techniques)),
-            candidate_techniques="\n".join(technique_lines),
+            max_techniques=max_techniques,
+            candidate_techniques=candidate_techniques,
         )
         if not QWEN_STAGE0_ENABLE_THINKING:
             prompt = prompt.rstrip() + "\n/no_think"
@@ -130,6 +139,27 @@ class QwenStage0Provider:
             return techniques
         return normalized
 
+    def _direction_call_sync(self, image_data_url: str, techniques: List[str]) -> List[TechniqueConfig]:
+        start_ts = now_perf()
+        print(
+            f"  🚀 [stage0-qwen:{self.model_name}] direction request start "
+            f"limit={STAGE0_MAX_TECHNIQUES}",
+            flush=True,
+        )
+        response = self.client.chat.completions.create(
+            model=self.model_name,
+            messages=self._build_messages(image_data_url, techniques),
+            temperature=STAGE0_TEMPERATURE,
+            top_p=STAGE0_TOP_P,
+            extra_body=self._build_extra_body(),
+        )
+        elapsed_ms = (now_perf() - start_ts) * 1000
+        print(
+            f"  📥 [stage0-qwen:{self.model_name}] direction response received {elapsed_ms:.0f}ms",
+            flush=True,
+        )
+        return build_direction_tasks(parse_json_from_text(_first_message_content(response)))
+
     async def select_techniques(self, image_bytes: bytes, techniques: List[str]) -> List[str]:
         if not ENABLE_STAGE0 or len(techniques) <= 1:
             return techniques
@@ -157,3 +187,34 @@ class QwenStage0Provider:
                 flush=True,
             )
             return techniques
+
+    async def select_stage1_tasks(self, image_bytes: bytes, techniques: List[str]) -> List[TechniqueConfig]:
+        if not PHOTOGRAPHER_EYE_DIRECTION_MODE:
+            return [
+                TECHNIQUE_CONFIGS[technique_id]
+                for technique_id in await self.select_techniques(image_bytes, techniques)
+            ]
+
+        start_ts = now_perf()
+        _, _, image_data_url = self.prepare_image_payload(image_bytes)
+        try:
+            tasks = await asyncio.to_thread(
+                self._direction_call_sync,
+                image_data_url,
+                techniques,
+            )
+            elapsed_ms = (now_perf() - start_ts) * 1000
+            print(
+                f"  🔎 [stage0-qwen:{self.model_name}] {elapsed_ms:.0f}ms "
+                f"directions={[task.name for task in tasks]}",
+                flush=True,
+            )
+            return tasks
+        except Exception as error:
+            elapsed_ms = (now_perf() - start_ts) * 1000
+            print(
+                f"  ⚠️ [stage0-qwen:{self.model_name}] {elapsed_ms:.0f}ms "
+                f"direction failed={type(error).__name__}: {error}",
+                flush=True,
+            )
+            return []

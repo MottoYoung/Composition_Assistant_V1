@@ -239,6 +239,7 @@ class CompositionRepository {
                         val event = gson.fromJson(payload, StreamStartedEvent::class.java)
                         selectedTechniques = event.selectedTechniques
                         totalTechniques = when {
+                            event.selectedTechniques.isNotEmpty() -> event.selectedTechniques.size
                             event.requestedTechniques.isNotEmpty() -> event.requestedTechniques.size
                             else -> 0
                         }
@@ -246,7 +247,7 @@ class CompositionRepository {
                             StreamAnalysisUpdate(
                                 selectedTechniques = selectedTechniques,
                                 completedCount = completedCount,
-                                totalCandidateCount = selectedTechniques.size,
+                                totalCandidateCount = totalTechniques,
                                 partialResponse = buildPartialResponse()
                             )
                         )

@@ -15,7 +15,11 @@ from config import (
     STAGE1_TIMEOUT_SECONDS,
     STAGE2_TIMEOUT_SECONDS,
     TECHNIQUE_CONFIGS,
+    TechniqueConfig,
+    PHOTOGRAPHER_EYE_DIRECTION_MODE,
     get_stage1_model_name,
+    reset_runtime_stage1_task_configs,
+    set_runtime_stage1_task_configs,
 )
 from schemas import AnalysisResponse, HealthResponse
 from schemas.composition import CompositionResult
@@ -43,7 +47,7 @@ def _normalized_steps_signature(composition: CompositionResult) -> tuple:
             step.action_type.strip().lower(),
             step.direction.strip().lower(),
         )
-        for step in composition.steps[:3]
+        for step in composition.steps[:4]
     )
 
 
@@ -118,9 +122,18 @@ def _duplicate_score(candidate: CompositionResult, kept: CompositionResult) -> f
     return score
 
 
+def _is_photographer_eye_task(technique_id: str) -> bool:
+    return technique_id.startswith("photographer_eye_")
+
+
 def _is_near_duplicate(candidate: CompositionResult, kept: CompositionResult) -> bool:
     if candidate.technique == kept.technique:
         return True
+    if (
+        _is_photographer_eye_task(candidate.technique)
+        or _is_photographer_eye_task(kept.technique)
+    ):
+        return False
     return _duplicate_score(candidate, kept) >= 0.85
 
 
@@ -220,6 +233,61 @@ async def _select_techniques(
         flush=True,
     )
     return selected
+
+
+async def _select_stage1_tasks(
+    stage0,
+    image_bytes: bytes,
+    requested_techniques: list[str],
+) -> list[TechniqueConfig]:
+    if not ENABLE_STAGE0 or stage0 is None:
+        if PHOTOGRAPHER_EYE_DIRECTION_MODE:
+            print(
+                "🎯 [stage0=disabled] photographer_eye 需要 Stage 0 方向任务，"
+                "不回退到旧版 technique 列表",
+                flush=True,
+            )
+            return []
+        print(
+            f"🎯 [stage0=disabled] selected {len(requested_techniques)}/"
+            f"{len(requested_techniques)} -> {requested_techniques}",
+            flush=True,
+        )
+        return [TECHNIQUE_CONFIGS[technique_id] for technique_id in requested_techniques]
+
+    tasks: list[TechniqueConfig] = []
+    if hasattr(stage0, "select_stage1_tasks"):
+        tasks = await stage0.select_stage1_tasks(image_bytes, requested_techniques)
+        tasks = [
+            task
+            for task in tasks
+            if isinstance(task, TechniqueConfig) and task.id and task.user_prompt
+        ]
+    else:
+        selected = await _select_techniques(stage0, image_bytes, requested_techniques)
+        tasks = [TECHNIQUE_CONFIGS[technique_id] for technique_id in selected]
+
+    if not tasks and requested_techniques:
+        if PHOTOGRAPHER_EYE_DIRECTION_MODE:
+            print(
+                "  ⚠️ [stage0] photographer_eye 未产出方向任务，"
+                "不回退到旧版 technique 列表",
+                flush=True,
+            )
+            return []
+        print(
+            "  ⚠️ [stage0] task 列表为空，回退到完整 technique 列表",
+            flush=True,
+        )
+        tasks = [TECHNIQUE_CONFIGS[technique_id] for technique_id in requested_techniques]
+
+    print(
+        f"🎯 [stage0={stage0.provider_name}:{stage0.model_name}] "
+        f"tasks {len(tasks)}/{len(requested_techniques)} -> "
+        f"{[(task.id, task.name) for task in tasks]}",
+        flush=True,
+    )
+    return tasks
 
 
 async def _pipeline_single(
@@ -507,22 +575,27 @@ async def analyze_composition(
         )
         print(f"{'=' * 60}")
 
-        techniques = await _select_techniques(stage0, image_bytes, requested_techniques)
-        if getattr(stage1, "supports_prompt_streaming_pipeline", False):
-            final_compositions = await _run_pipeline_batch(
-                stage1=stage1,
-                stage2=stage2,
-                image_bytes=image_bytes,
-                techniques=techniques,
-                timeout_stats=timeout_stats,
-            )
-        else:
-            final_compositions = await _run_non_stream_batch(
-                stage1=stage1,
-                stage2=stage2,
-                image_bytes=image_bytes,
-                techniques=techniques,
-            )
+        stage1_tasks = await _select_stage1_tasks(stage0, image_bytes, requested_techniques)
+        techniques = [task.id for task in stage1_tasks]
+        task_token = set_runtime_stage1_task_configs({task.id: task for task in stage1_tasks})
+        try:
+            if getattr(stage1, "supports_prompt_streaming_pipeline", False):
+                final_compositions = await _run_pipeline_batch(
+                    stage1=stage1,
+                    stage2=stage2,
+                    image_bytes=image_bytes,
+                    techniques=techniques,
+                    timeout_stats=timeout_stats,
+                )
+            else:
+                final_compositions = await _run_non_stream_batch(
+                    stage1=stage1,
+                    stage2=stage2,
+                    image_bytes=image_bytes,
+                    techniques=techniques,
+                )
+        finally:
+            reset_runtime_stage1_task_configs(task_token)
 
         final_compositions = _diversify_compositions(final_compositions)
         total_time_ms = (time.perf_counter() - overall_start) * 1000
@@ -579,12 +652,15 @@ async def analyze_composition_stream(
             "stage2_timeouts": 0,
             "stage2_failures": 0,
         }
-        techniques = await _select_techniques(stage0, image_bytes, requested_techniques)
+        stage1_tasks = await _select_stage1_tasks(stage0, image_bytes, requested_techniques)
+        techniques = [task.id for task in stage1_tasks]
+        task_token = set_runtime_stage1_task_configs({task.id: task for task in stage1_tasks})
         yield _to_sse_payload(
             {
                 "event": "analysis_started",
                 "requested_techniques": requested_techniques,
                 "selected_techniques": techniques,
+                "selected_task_names": [task.name for task in stage1_tasks],
                 "stage0_provider": stage0.provider_name if stage0 else "disabled",
                 "stage0_model": stage0.model_name if stage0 else "disabled",
                 "stage1_provider": stage1.provider_name,
@@ -596,96 +672,99 @@ async def analyze_composition_stream(
             }
         )
 
-        stage1_semaphore = asyncio.Semaphore(max(1, STAGE1_MAX_CONCURRENCY))
-        _, _, image_data_url = stage1.prepare_image_payload(image_bytes)
-        original_b64 = image_data_url
-        result_queue: asyncio.Queue = asyncio.Queue()
+        try:
+            stage1_semaphore = asyncio.Semaphore(max(1, STAGE1_MAX_CONCURRENCY))
+            _, _, image_data_url = stage1.prepare_image_payload(image_bytes)
+            original_b64 = image_data_url
+            result_queue: asyncio.Queue = asyncio.Queue()
 
-        async def run_single(technique_id: str) -> None:
-            composition = await _pipeline_single(
-                stage1=stage1,
-                stage2=stage2,
-                stage1_semaphore=stage1_semaphore,
-                technique_id=technique_id,
-                image_data_url=image_data_url,
-                original_b64=original_b64,
-                timeout_stats=timeout_stats,
-            )
-            await result_queue.put((technique_id, composition))
+            async def run_single(technique_id: str) -> None:
+                composition = await _pipeline_single(
+                    stage1=stage1,
+                    stage2=stage2,
+                    stage1_semaphore=stage1_semaphore,
+                    technique_id=technique_id,
+                    image_data_url=image_data_url,
+                    original_b64=original_b64,
+                    timeout_stats=timeout_stats,
+                )
+                await result_queue.put((technique_id, composition))
 
-        async def run_all() -> None:
-            await asyncio.gather(
-                *[run_single(technique_id) for technique_id in techniques],
-                return_exceptions=True,
-            )
-            await result_queue.put(None)
+            async def run_all() -> None:
+                await asyncio.gather(
+                    *[run_single(technique_id) for technique_id in techniques],
+                    return_exceptions=True,
+                )
+                await result_queue.put(None)
 
-        asyncio.create_task(run_all())
-        emitted: list[CompositionResult] = []
-        completed_count = 0
+            asyncio.create_task(run_all())
+            emitted: list[CompositionResult] = []
+            completed_count = 0
 
-        while True:
-            item = await result_queue.get()
-            if item is None:
-                break
+            while True:
+                item = await result_queue.get()
+                if item is None:
+                    break
 
-            completed_count += 1
-            technique_id, composition = item
-            if composition is None:
+                completed_count += 1
+                technique_id, composition = item
+                if composition is None:
+                    yield _to_sse_payload(
+                        {
+                            "event": "technique_skipped",
+                            "technique": technique_id,
+                            "completed_count": completed_count,
+                        }
+                    )
+                    continue
+
+                duplicate_of = next(
+                    (kept for kept in emitted if _is_near_duplicate(composition, kept)),
+                    None,
+                )
+                if duplicate_of is not None:
+                    score = _duplicate_score(composition, duplicate_of)
+                    print(
+                        f"  🪄 [stream:{composition.technique}] 与 [{duplicate_of.technique}] "
+                        f"近似重复 (score={score:.2f})，流式跳过",
+                        flush=True,
+                    )
+                    yield _to_sse_payload(
+                        {
+                            "event": "candidate_duplicate_skipped",
+                            "technique": composition.technique,
+                            "duplicate_of": duplicate_of.technique,
+                            "completed_count": completed_count,
+                        }
+                    )
+                    continue
+
+                emitted.append(composition)
                 yield _to_sse_payload(
                     {
-                        "event": "technique_skipped",
-                        "technique": technique_id,
+                        "event": "candidate_ready",
                         "completed_count": completed_count,
+                        "applicable_count": len(emitted),
+                        "composition": composition.model_dump(),
                     }
                 )
-                continue
 
-            duplicate_of = next(
-                (kept for kept in emitted if _is_near_duplicate(composition, kept)),
-                None,
-            )
-            if duplicate_of is not None:
-                score = _duplicate_score(composition, duplicate_of)
-                print(
-                    f"  🪄 [stream:{composition.technique}] 与 [{duplicate_of.technique}] "
-                    f"近似重复 (score={score:.2f})，流式跳过",
-                    flush=True,
-                )
-                yield _to_sse_payload(
-                    {
-                        "event": "candidate_duplicate_skipped",
-                        "technique": composition.technique,
-                        "duplicate_of": duplicate_of.technique,
-                        "completed_count": completed_count,
-                    }
-                )
-                continue
-
-            emitted.append(composition)
+            total_time_ms = (time.perf_counter() - overall_start) * 1000
             yield _to_sse_payload(
                 {
-                    "event": "candidate_ready",
-                    "completed_count": completed_count,
+                    "event": "summary",
+                    "total_techniques": len(techniques),
                     "applicable_count": len(emitted),
-                    "composition": composition.model_dump(),
+                    "total_time_ms": total_time_ms,
+                    "stage1_timeouts": timeout_stats["stage1_timeouts"],
+                    "stage1_failures": timeout_stats["stage1_failures"],
+                    "stage2_timeouts": timeout_stats["stage2_timeouts"],
+                    "stage2_failures": timeout_stats["stage2_failures"],
                 }
             )
-
-        total_time_ms = (time.perf_counter() - overall_start) * 1000
-        yield _to_sse_payload(
-            {
-                "event": "summary",
-                "total_techniques": len(techniques),
-                "applicable_count": len(emitted),
-                "total_time_ms": total_time_ms,
-                "stage1_timeouts": timeout_stats["stage1_timeouts"],
-                "stage1_failures": timeout_stats["stage1_failures"],
-                "stage2_timeouts": timeout_stats["stage2_timeouts"],
-                "stage2_failures": timeout_stats["stage2_failures"],
-            }
-        )
-        yield "data: [DONE]\n\n"
+            yield "data: [DONE]\n\n"
+        finally:
+            reset_runtime_stage1_task_configs(task_token)
 
     return StreamingResponse(
         event_generator(),

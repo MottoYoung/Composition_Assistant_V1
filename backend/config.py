@@ -8,6 +8,7 @@
 """
 
 import os
+from contextvars import ContextVar
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -48,11 +49,11 @@ GEMINI_PROXY_URL = "http://127.0.0.1:11087"
 # OpenRouter 默认复用 Gemini 的本地代理。
 USE_OPENROUTER_PROXY = True
 OPENROUTER_PROXY_URL = os.environ.get("OPENROUTER_PROXY_URL", GEMINI_PROXY_URL).strip()
-
 # Gemini 国内中转配置：
 # - 关闭时：继续使用官方 Gemini API（GEMINI_API_KEY）
 # - 开启时：使用兼容 Gemini REST 路径的国内中转
 # - BASE URL 填服务根地址或 API 根地址，不要填完整 generateContent 路径
+
 USE_GEMINI_DOMESTIC_API = False
 GEMINI_DOMESTIC_BASE_URL = "https://yinli.one"
 GEMINI_DOMESTIC_API_VERSION = "v1beta"
@@ -75,8 +76,8 @@ GEMINI_STAGE2_MODEL = "gemini-2.5-flash-image"
 # - gemini-3.1-flash-image-preview
 # - gemini-3-pro-image-preview
 GEMINI_STAGE0_MODEL = "gemini-3.1-flash-lite"
-OPENROUTER_STAGE2_MODEL = "google/gemini-3.1-flash-lite-image"
 
+OPENROUTER_STAGE2_MODEL = "google/gemini-3.1-flash-lite-image"
 
 def get_stage0_model_name() -> str:
     return GEMINI_STAGE0_MODEL if STAGE0_PROVIDER == "gemini" else QWEN_STAGE0_MODEL
@@ -98,6 +99,8 @@ def get_stage2_model_name() -> str:
 BASE_DIR = Path(__file__).resolve().parent
 TEMP_DIR = BASE_DIR / "temp"
 PROMPTS_DIR = BASE_DIR / "prompts"
+PROMPT_SET = os.environ.get("PROMPT_SET", "default").strip() or "default"
+PHOTOGRAPHER_EYE_DIRECTION_MODE = PROMPT_SET == "photographer_eye"
 
 TEMP_DIR.mkdir(exist_ok=True)
 
@@ -114,8 +117,12 @@ class TechniqueConfig:
     user_prompt: str
 
 
-SYSTEM_INSTRUCTION = load_prompt_file("stage1_system_instruction.md")
-STAGE0_SOFT_PREFILTER_PROMPT_TEMPLATE = load_prompt_file("stage0_soft_prefilter.md")
+STAGE1_SYSTEM_PROMPT_PATH = f"{PROMPT_SET}/stage1_system_instruction.md"
+STAGE0_SOFT_PREFILTER_PROMPT_PATH = f"{PROMPT_SET}/stage0_soft_prefilter.md"
+TECHNIQUE_PROMPT_DIR = f"{PROMPT_SET}/techniques"
+
+SYSTEM_INSTRUCTION = load_prompt_file(STAGE1_SYSTEM_PROMPT_PATH)
+STAGE0_SOFT_PREFILTER_PROMPT_TEMPLATE = load_prompt_file(STAGE0_SOFT_PREFILTER_PROMPT_PATH)
 
 _TECHNIQUE_DEFINITIONS = (
     ("rule_of_thirds", "三分构图"),
@@ -129,14 +136,55 @@ TECHNIQUE_CONFIGS: dict[str, TechniqueConfig] = {
     technique_id: TechniqueConfig(
         id=technique_id,
         name=technique_name,
-        user_prompt=load_prompt_file(f"techniques/{technique_id}.md"),
+        user_prompt=load_prompt_file(f"{TECHNIQUE_PROMPT_DIR}/{technique_id}.md"),
     )
     for technique_id, technique_name in _TECHNIQUE_DEFINITIONS
 }
 
+_PHOTOGRAPHER_EYE_DIRECTION_DEFINITIONS = (
+    ("light_shadow", "光影机会", "逆光、侧光、窗光、投影、光斑、剪影、灯点或明暗分区。"),
+    ("reflection", "反射机会", "水面、玻璃、金属、雨后地面、橱窗或车窗中的真实反射。"),
+    ("foreground_frame", "前景框景", "门洞、窗框、栏杆、树枝、屋檐、车窗、桌边或任何真实前景开口。"),
+    ("spatial_depth", "空间层次", "前景、中景、远景、街道纵深、道路、走廊、岸线或空间尺度关系。"),
+    ("subject_isolation", "主体提取", "人、动物、花、灯、杯子、远处建筑等小而明确的主体。"),
+    ("geometry_order", "几何秩序", "重复线条、对称、网格、窗格、楼梯节奏、建筑轴线或稳定图形。"),
+    ("perspective_shift", "视角重构", "低机位、高机位、绕拍、靠近或后退后会明显变好的视角。"),
+    ("texture_detail", "材质局部", "玻璃、金属、水面、墙面、叶脉、食物质感、毛发、布料或器物表面。"),
+    ("moment_narrative", "瞬间叙事", "人物、动物、车辆、手势、姿态、关系或等待后更成立的瞬间。"),
+)
+
+PHOTOGRAPHER_EYE_DIRECTION_CONFIGS: dict[str, TechniqueConfig] = {
+    direction_id: TechniqueConfig(
+        id=direction_id,
+        name=direction_name,
+        user_prompt=direction_desc,
+    )
+    for direction_id, direction_name, direction_desc in _PHOTOGRAPHER_EYE_DIRECTION_DEFINITIONS
+}
+
+_RUNTIME_STAGE1_TASK_CONFIGS: ContextVar[dict[str, TechniqueConfig]] = ContextVar(
+    "runtime_stage1_task_configs",
+    default={},
+)
+
+
+def set_runtime_stage1_task_configs(task_configs: dict[str, TechniqueConfig]):
+    return _RUNTIME_STAGE1_TASK_CONFIGS.set(task_configs)
+
+
+def reset_runtime_stage1_task_configs(token) -> None:
+    _RUNTIME_STAGE1_TASK_CONFIGS.reset(token)
+
+
+def get_stage1_task_config(task_id: str) -> TechniqueConfig:
+    runtime_configs = _RUNTIME_STAGE1_TASK_CONFIGS.get()
+    if task_id in runtime_configs:
+        return runtime_configs[task_id]
+    return TECHNIQUE_CONFIGS[task_id]
+
 
 # ==================== Stage 0 配置 ==================== #
-ENABLE_STAGE0 = False
+ENABLE_STAGE0 = True
 STAGE0_MAX_TECHNIQUES = 5
 STAGE0_TEMPERATURE = 0.1
 STAGE0_TOP_P = 0.9

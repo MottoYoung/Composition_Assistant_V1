@@ -27,6 +27,7 @@ from config import (
     STAGE1_TIMEOUT_SECONDS,
     SYSTEM_INSTRUCTION,
     TECHNIQUE_CONFIGS,
+    get_stage1_task_config,
 )
 from schemas import CompositionResult
 from services.common import (
@@ -114,7 +115,7 @@ class GeminiStage1Provider:
         try:
             return self.client.models.generate_content_stream(
                 model=self.model_name,
-                contents=[TECHNIQUE_CONFIGS[technique_id].user_prompt, image],
+                contents=[get_stage1_task_config(technique_id).user_prompt, image],
                 config=self._build_config(),
             )
         except Exception as error:
@@ -127,7 +128,7 @@ class GeminiStage1Provider:
             )
             return self.client.models.generate_content_stream(
                 model=self.model_name,
-                contents=[TECHNIQUE_CONFIGS[technique_id].user_prompt, image],
+                contents=[get_stage1_task_config(technique_id).user_prompt, image],
                 config=self._build_config(response_mime_type=None),
             )
 
@@ -234,7 +235,7 @@ class GeminiStage1Provider:
                             {
                                 "event": "prompt_ready",
                                 "technique": technique_id,
-                                "technique_name": TECHNIQUE_CONFIGS[technique_id].name,
+                                "technique_name": get_stage1_task_config(technique_id).name,
                                 "image_prompt": prompt,
                                 "prompt_ready_ms": round(timing.prompt_ms or 0.0),
                             },
@@ -364,7 +365,7 @@ class GeminiStage1Provider:
         parsed_json = parse_json_from_text(full_content)
         result = build_stage1_result(
             technique_id=technique_id,
-            technique_name=TECHNIQUE_CONFIGS[technique_id].name,
+            technique_name=get_stage1_task_config(technique_id).name,
             start_time=start_time,
             end_time=end_time,
             start_ts=start_ts,
@@ -403,7 +404,7 @@ class GeminiStage1Provider:
             )
             return Stage1Result(
                 technique_id=technique_id,
-                technique_name=TECHNIQUE_CONFIGS[technique_id].name,
+                technique_name=get_stage1_task_config(technique_id).name,
                 start_time=start_time.isoformat(),
                 end_time=datetime.now().isoformat(),
                 response_time_ms=(end_ts - start_ts) * 1000,
@@ -491,7 +492,7 @@ class GeminiStage1Provider:
                     {
                         "event": "technique_not_applicable",
                         "technique": technique_id,
-                        "technique_name": TECHNIQUE_CONFIGS[technique_id].name,
+                        "technique_name": get_stage1_task_config(technique_id).name,
                         "response_time_ms": result.response_time_ms,
                     }
                 )
