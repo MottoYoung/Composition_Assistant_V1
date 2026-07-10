@@ -29,6 +29,17 @@ object CameraZoomController {
         return (lens?.targetZoomRatio ?: 1f) * rawZoomRatio
     }
 
+    fun effectiveZoomRangeForLens(
+        lens: CameraLensOption?,
+        cameraInfo: CameraInfo?
+    ): ClosedFloatingPointRange<Float> {
+        val baseZoom = lens?.targetZoomRatio?.takeIf { it > 0f } ?: 1f
+        val zoomState = cameraInfo?.zoomState?.value
+        val minEffectiveZoom = baseZoom * (zoomState?.minZoomRatio ?: 1f)
+        val maxEffectiveZoom = baseZoom * (zoomState?.maxZoomRatio ?: 8f)
+        return minOf(minEffectiveZoom, maxEffectiveZoom)..maxOf(minEffectiveZoom, maxEffectiveZoom)
+    }
+
     fun chooseLensForZoom(
         presets: List<CameraZoomPreset>,
         targetEffectiveZoom: Float
@@ -46,8 +57,8 @@ object CameraZoomController {
         targetEffectiveZoom: Float,
         cameraInfo: CameraInfo?
     ): Float {
-        val baseZoom = lens?.targetZoomRatio ?: 1f
-        val targetRawZoom = (targetEffectiveZoom / baseZoom).coerceAtLeast(1f)
+        val baseZoom = lens?.targetZoomRatio?.takeIf { it > 0f } ?: 1f
+        val targetRawZoom = targetEffectiveZoom / baseZoom
         val zoomState = cameraInfo?.zoomState?.value
         val minZoom = zoomState?.minZoomRatio ?: 1f
         val maxZoom = zoomState?.maxZoomRatio ?: 8f

@@ -83,7 +83,10 @@ object CameraLensManager {
     }
 
     @OptIn(ExperimentalCamera2Interop::class)
-    fun buildCameraSelector(lens: CameraLensOption): CameraSelector {
+    fun buildCameraSelector(
+        lens: CameraLensOption,
+        bindPhysicalCamera: Boolean = true
+    ): CameraSelector {
         val builder = CameraSelector.Builder()
             .requireLensFacing(lens.lensFacing)
             .addCameraFilter { cameraInfos ->
@@ -92,7 +95,9 @@ object CameraLensManager {
                 }
             }
 
-        lens.physicalCameraId?.let(builder::setPhysicalCameraId)
+        if (bindPhysicalCamera) {
+            lens.physicalCameraId?.let(builder::setPhysicalCameraId)
+        }
         return builder.build()
     }
 
@@ -187,18 +192,22 @@ object CameraLensManager {
     }
 
     private fun List<CameraLensOption>.removeDuplicateBackLensLabels(): List<CameraLensOption> {
-        val seenBackLabels = mutableSetOf<String>()
-
-        return asReversed()
-            .filter { option ->
-                if (option.lensFacing != CameraCharacteristics.LENS_FACING_BACK) {
-                    return@filter true
-                }
-
-                val key = option.displayName.lowercase(Locale.US)
-                seenBackLabels.add(key)
+        val preferredBackLensByLabel = filter {
+            it.lensFacing == CameraCharacteristics.LENS_FACING_BACK
+        }
+            .groupBy { it.displayName.lowercase(Locale.US) }
+            .mapValues { (_, options) ->
+                options.firstOrNull { it.physicalCameraId != null } ?: options.last()
             }
-            .asReversed()
+
+        return filter { option ->
+            if (option.lensFacing != CameraCharacteristics.LENS_FACING_BACK) {
+                return@filter true
+            }
+
+            val key = option.displayName.lowercase(Locale.US)
+            preferredBackLensByLabel[key] == option
+        }
     }
 
     private fun CameraCharacteristics.focalLengthOrNull(): Float? {
