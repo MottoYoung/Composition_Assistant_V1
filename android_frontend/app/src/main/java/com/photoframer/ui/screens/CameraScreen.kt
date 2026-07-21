@@ -1,7 +1,6 @@
 package com.photoframer.ui.screens
 
 import android.content.Context
-import android.graphics.Bitmap
 import android.os.Build
 import android.os.VibrationEffect
 import android.os.Vibrator
@@ -16,7 +15,6 @@ import androidx.camera.core.CameraInfo
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageCapture
-import androidx.camera.core.ImageCaptureException
 import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
@@ -34,7 +32,6 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -56,12 +53,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -75,21 +70,14 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
-import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.photoframer.arcore.ArCoreRuntimeState
 import com.photoframer.arcore.ArCorePoseTracker
-import com.photoframer.arcore.ArCoreStatus
 import com.photoframer.arcore.ArCoreSupport
-import com.photoframer.arcore.findActivity
 import com.photoframer.guidance.isLevelAction
 import com.photoframer.guidance.isViewpointAction
 import com.photoframer.ui.components.AllStepsCompletedBanner
@@ -111,7 +99,6 @@ import com.photoframer.ui.components.SideToolBar
 import com.photoframer.ui.components.TopGuidanceBar
 import com.photoframer.ui.state.CameraUiState
 import com.photoframer.ui.theme.BackgroundDark
-import com.photoframer.ui.theme.ErrorRed
 import com.photoframer.ui.theme.PurplePrimary
 import com.photoframer.ui.theme.SurfaceDark
 import com.photoframer.ui.theme.TextSecondary
@@ -124,12 +111,9 @@ import com.photoframer.utils.ImageFileDecoder
 import com.photoframer.utils.ImageSaver
 import com.photoframer.viewmodel.CameraViewModel
 import java.io.File
-import java.io.FileOutputStream
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
-import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -165,31 +149,27 @@ fun CameraScreen(
         ArCorePoseTracker(context.applicationContext)
     }
 
-    var flashMode by remember { mutableStateOf(FlashMode.OFF) }
-    var gridEnabled by remember { mutableStateOf(false) }
-    var lastPhotoThumbnail by remember { mutableStateOf<Bitmap?>(null) }
-    var hasGalleryReadPermission by remember {
-        mutableStateOf(GalleryPermissionUtils.hasGalleryReadPermission(context))
-    }
-    var availableLenses by remember { mutableStateOf(CameraLensManager.getAvailableLenses(context)) }
-    var selectedLensIndex by remember { mutableIntStateOf(0) }
-    var desiredEffectiveZoom by remember { mutableFloatStateOf(1f) }
-    var isZoomRulerVisible by remember { mutableStateOf(false) }
-    var zoomInteractionVersion by remember { mutableIntStateOf(0) }
-
-    var touchScreenPhotoEnabled by remember { mutableStateOf(false) }
-    var selectedRatio by remember { mutableStateOf(AspectRatioOption.FULL) }
-    var selectedTimer by remember { mutableStateOf(CaptureTimer.OFF) }
-    var countdownValue by remember { mutableStateOf<Int?>(null) }
-    var burstCount by remember { mutableIntStateOf(0) }
-    var isBursting by remember { mutableStateOf(false) }
-    var activeEntryMode by remember { mutableStateOf(CameraEntryMode.NONE) }
-    var visualStyle by remember { mutableStateOf(CameraVisualStyle.DEFAULT) }
+    val controls = rememberCameraControlState(context)
+    var flashMode by controls::flashMode
+    var gridEnabled by controls::gridEnabled
+    var lastPhotoThumbnail by controls::lastPhotoThumbnail
+    var hasGalleryReadPermission by controls::hasGalleryReadPermission
+    var availableLenses by controls::availableLenses
+    var selectedLensIndex by controls::selectedLensIndex
+    var desiredEffectiveZoom by controls::desiredEffectiveZoom
+    var isZoomRulerVisible by controls::isZoomRulerVisible
+    var zoomInteractionVersion by controls::zoomInteractionVersion
+    var touchScreenPhotoEnabled by controls::touchScreenPhotoEnabled
+    var selectedRatio by controls::selectedRatio
+    var selectedTimer by controls::selectedTimer
+    var countdownValue by controls::countdownValue
+    var burstCount by controls::burstCount
+    var isBursting by controls::isBursting
+    var activeEntryMode by controls::activeEntryMode
+    var visualStyle by controls::visualStyle
 
     val frameCounter = remember { AtomicInteger(0) }
     val lastAnalysisTime = remember { AtomicLong(0L) }
-    var arCoreStatus by remember { mutableStateOf(ArCoreSupport.idleStatus()) }
-    var hasRequestedArCoreInstall by remember { mutableStateOf(false) }
     var arExperimentEnabled by remember { mutableStateOf(ArCoreSupport.isEnabled(context)) }
 
     val guidingStep = (uiState as? CameraUiState.Guiding)?.currentStep
@@ -203,6 +183,26 @@ fun CameraScreen(
     }
     val selectedLens = availableLenses.getOrNull(selectedLensIndex)
     val selectedFacing = selectedLens?.lensFacing ?: CameraSelector.LENS_FACING_BACK
+    val arCoreStatus = rememberArCoreStatus(
+        context = context,
+        lifecycleOwner = lifecycleOwner,
+        poseTracker = arCorePoseTracker,
+        needsPoseTracking = needsPoseTracking,
+        isViewpointStep = isViewpointStep,
+        shouldUseArCore = shouldUseArCore,
+        stepOrder = guidingStep?.stepOrder
+    )
+    CameraResourceDisposalEffect(cameraExecutor, arCorePoseTracker)
+    CameraPoseTrackingEffect(
+        context = context,
+        poseTracker = arCorePoseTracker,
+        previewView = previewView,
+        needsPoseTracking = needsPoseTracking,
+        shouldUseArCore = shouldUseArCore,
+        stepOrder = guidingStep?.stepOrder,
+        arCoreStatus = arCoreStatus,
+        selectedFacing = selectedFacing
+    )
     val currentFacingLenses = availableLenses.mapIndexedNotNull { index, lens ->
         if (lens.lensFacing == selectedFacing) {
             index to lens
@@ -256,121 +256,6 @@ fun CameraScreen(
             @Suppress("DEPRECATION")
             vibrator?.vibrate(VibrationEffect.createOneShot(180, 160))
         }
-    }
-
-    DisposableEffect(cameraExecutor, arCorePoseTracker) {
-        onDispose {
-            arCorePoseTracker.close()
-            cameraExecutor.shutdownNow()
-        }
-    }
-
-    DisposableEffect(
-        lifecycleOwner,
-        needsPoseTracking,
-        shouldUseArCore,
-        guidingStep?.stepOrder
-    ) {
-        if (!needsPoseTracking) {
-            arCoreStatus = ArCoreSupport.idleStatus()
-            hasRequestedArCoreInstall = false
-            arCorePoseTracker.stop()
-            return@DisposableEffect onDispose {}
-        }
-        if (!isViewpointStep) {
-            arCoreStatus = ArCoreSupport.disabledStatus()
-            hasRequestedArCoreInstall = false
-            return@DisposableEffect onDispose {}
-        }
-        if (!shouldUseArCore) {
-            arCoreStatus = ArCoreSupport.disabledStatus()
-            hasRequestedArCoreInstall = false
-            return@DisposableEffect onDispose {}
-        }
-
-        var checkingJob: Job? = null
-
-        fun refreshArCoreStatus() {
-            val activity = context.findActivity()
-            arCoreStatus = if (activity != null) {
-                ArCoreSupport.resolveForActivity(
-                    activity = activity,
-                    requestInstall = !hasRequestedArCoreInstall
-                ).also { status ->
-                    if (status.state == ArCoreRuntimeState.Installing) {
-                        hasRequestedArCoreInstall = true
-                    }
-                }
-            } else {
-                ArCoreStatus(
-                    state = ArCoreRuntimeState.Failed,
-                    message = "无法启动 ARCore",
-                    detail = "当前继续使用视觉估计"
-                )
-            }
-        }
-
-        fun scheduleCheckingPoll() {
-            checkingJob?.cancel()
-            val activity = context.findActivity() ?: return
-            checkingJob = scope.launch {
-                repeat(6) { attempt ->
-                    if (arCoreStatus.state != ArCoreRuntimeState.Checking) return@launch
-                    delay(1200)
-                    refreshArCoreStatus()
-                    if (arCoreStatus.state != ArCoreRuntimeState.Checking) return@launch
-                    if (attempt == 5) {
-                        arCoreStatus = ArCoreSupport.checkingTimeoutStatus(activity)
-                    }
-                }
-            }
-        }
-
-        refreshArCoreStatus()
-        if (arCoreStatus.state == ArCoreRuntimeState.Checking) {
-            scheduleCheckingPoll()
-        }
-        val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME) {
-                refreshArCoreStatus()
-                if (arCoreStatus.state == ArCoreRuntimeState.Checking) {
-                    scheduleCheckingPoll()
-                } else {
-                    checkingJob?.cancel()
-                    checkingJob = null
-                }
-            }
-        }
-        lifecycleOwner.lifecycle.addObserver(observer)
-
-        onDispose {
-            checkingJob?.cancel()
-            lifecycleOwner.lifecycle.removeObserver(observer)
-            arCorePoseTracker.stop()
-        }
-    }
-
-    LaunchedEffect(
-        needsPoseTracking,
-        shouldUseArCore,
-        guidingStep?.stepOrder,
-        arCoreStatus.state,
-        selectedFacing
-    ) {
-        if (!needsPoseTracking || selectedFacing == CameraSelector.LENS_FACING_FRONT) {
-            arCorePoseTracker.stop()
-            return@LaunchedEffect
-        }
-
-        val currentPreview = previewView
-        arCorePoseTracker.start(
-            activity = context.findActivity(),
-            preferArCore = shouldUseArCore && arCoreStatus.isReady,
-            viewportWidth = currentPreview?.width ?: 0,
-            viewportHeight = currentPreview?.height ?: 0,
-            displayRotation = currentPreview?.display?.rotation ?: Surface.ROTATION_0,
-            resetBaseline = true
-        )
     }
 
     fun defaultLensIndex(lenses: List<CameraLensOption>): Int {
@@ -495,10 +380,7 @@ fun CameraScreen(
 
     LaunchedEffect(uiState) {
         if (uiState is CameraUiState.Preview) {
-            activeEntryMode = CameraEntryMode.NONE
-            countdownValue = null
-            isBursting = false
-            burstCount = 0
+            controls.resetTransientCaptureState()
         }
     }
 
@@ -1107,333 +989,5 @@ fun CameraScreen(
                 }
             }
         }
-    }
-}
-
-@Composable
-private fun ErrorOverlay(
-    title: String,
-    message: String,
-    actionText: String,
-    onRetry: () -> Unit
-) {
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(BackgroundDark.copy(alpha = 0.8f)),
-        contentAlignment = Alignment.Center
-    ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            modifier = Modifier.padding(32.dp)
-        ) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.titleLarge,
-                color = ErrorRed
-            )
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            Text(
-                text = message,
-                style = MaterialTheme.typography.bodyLarge,
-                color = TextSecondary,
-                textAlign = TextAlign.Center
-            )
-
-            Spacer(modifier = Modifier.height(24.dp))
-
-            Button(
-                onClick = onRetry,
-                colors = ButtonDefaults.buttonColors(containerColor = PurplePrimary)
-            ) {
-                Text(actionText)
-            }
-        }
-    }
-}
-
-@Composable
-private fun StepSkipOverlay(
-    onSkip: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    Card(
-        modifier = modifier
-            .padding(horizontal = 24.dp),
-        shape = RoundedCornerShape(18.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = SurfaceDark.copy(alpha = 0.92f)
-        ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
-    ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = "这一步有点卡住了",
-                    color = Color.White,
-                    style = MaterialTheme.typography.bodyLarge
-                )
-                Text(
-                    text = "可以先跳过，后面继续拍摄",
-                    color = TextSecondary,
-                    style = MaterialTheme.typography.bodySmall
-                )
-            }
-            Button(
-                onClick = onSkip,
-                colors = ButtonDefaults.buttonColors(containerColor = PurplePrimary),
-                shape = RoundedCornerShape(999.dp)
-            ) {
-                Text("跳过此步")
-            }
-        }
-    }
-}
-
-@Composable
-private fun PostCaptureChoiceOverlay(
-    message: String,
-    onViewCandidates: () -> Unit,
-    onDismiss: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    Card(
-        modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = SurfaceDark.copy(alpha = 0.94f)
-        ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 10.dp)
-    ) {
-        Column(
-            modifier = Modifier.padding(horizontal = 18.dp, vertical = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            Text(
-                text = "当前方案已拍完",
-                color = Color.White,
-                style = MaterialTheme.typography.titleMedium
-            )
-            Text(
-                text = message,
-                color = TextSecondary,
-                style = MaterialTheme.typography.bodyMedium
-            )
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                Button(
-                    onClick = onDismiss,
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = Color.White.copy(alpha = 0.08f)
-                    ),
-                    shape = RoundedCornerShape(16.dp),
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Text("留在当前方案", color = Color.White)
-                }
-                Button(
-                    onClick = onViewCandidates,
-                    colors = ButtonDefaults.buttonColors(containerColor = PurplePrimary),
-                    shape = RoundedCornerShape(16.dp),
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Text("查看其他方案", color = Color.White)
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun NewCandidateOverlay(
-    message: String,
-    onViewCandidates: () -> Unit,
-    onDismiss: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    Card(
-        modifier = modifier,
-        shape = RoundedCornerShape(999.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = SurfaceDark.copy(alpha = 0.90f)
-        ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
-    ) {
-        Row(
-            modifier = Modifier.padding(start = 14.dp, top = 8.dp, end = 8.dp, bottom = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            Text(
-                text = message,
-                color = Color.White,
-                style = MaterialTheme.typography.bodySmall,
-                modifier = Modifier.weight(1f, fill = false)
-            )
-            TextButton(onClick = onDismiss) {
-                Text("稍后", color = TextSecondary)
-            }
-            Button(
-                onClick = onViewCandidates,
-                colors = ButtonDefaults.buttonColors(containerColor = PurplePrimary),
-                shape = RoundedCornerShape(999.dp),
-                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
-            ) {
-                Text("查看", color = Color.White)
-            }
-        }
-    }
-}
-
-@Composable
-private fun AspectRatioMaskOverlay(
-    selectedRatio: AspectRatioOption,
-    modifier: Modifier = Modifier
-) {
-    BoxWithConstraints(modifier = modifier) {
-        val targetRatio = when (selectedRatio) {
-            AspectRatioOption.RATIO_4_3 -> 4f / 3f
-            AspectRatioOption.RATIO_1_1 -> 1f
-            AspectRatioOption.FULL -> maxWidth.value / maxHeight.value
-        }
-        val containerRatio = maxWidth.value / maxHeight.value
-        val maskColor = Color.Black.copy(alpha = 0.36f)
-        val borderColor = Color.White.copy(alpha = 0.45f)
-
-        if (containerRatio > targetRatio) {
-            val visibleWidth: Dp = maxHeight * targetRatio
-            val sideMask = (maxWidth - visibleWidth) / 2f
-
-            Box(
-                modifier = Modifier
-                    .fillMaxHeight()
-                    .width(sideMask)
-                    .background(maskColor)
-                    .align(Alignment.CenterStart)
-            )
-            Box(
-                modifier = Modifier
-                    .fillMaxHeight()
-                    .width(sideMask)
-                    .background(maskColor)
-                    .align(Alignment.CenterEnd)
-            )
-            Box(
-                modifier = Modifier
-                    .width(visibleWidth)
-                    .fillMaxHeight()
-                    .border(1.dp, borderColor)
-                    .align(Alignment.Center)
-            )
-        } else {
-            val visibleHeight: Dp = maxWidth / targetRatio
-            val topMask = (maxHeight - visibleHeight) / 2f
-
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(topMask)
-                    .background(maskColor)
-                    .align(Alignment.TopCenter)
-            )
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(topMask)
-                    .background(maskColor)
-                    .align(Alignment.BottomCenter)
-            )
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(visibleHeight)
-                    .border(1.dp, borderColor)
-                    .align(Alignment.Center)
-            )
-        }
-    }
-}
-
-private fun captureAndAnalyze(
-    context: Context,
-    imageCapture: ImageCapture?,
-    executor: ExecutorService,
-    onImageCaptured: (File) -> Unit
-) {
-    if (imageCapture == null) {
-        Log.e(TAG, "ImageCapture 未初始化")
-        return
-    }
-
-    val photoFile = File(
-        context.cacheDir,
-        "capture_${System.currentTimeMillis()}.jpg"
-    )
-
-    val outputOptions = ImageCapture.OutputFileOptions.Builder(photoFile).build()
-
-    imageCapture.takePicture(
-        outputOptions,
-        executor,
-        object : ImageCapture.OnImageSavedCallback {
-            override fun onImageSaved(output: ImageCapture.OutputFileResults) {
-                Log.d(TAG, "图片保存成功: ${photoFile.absolutePath}")
-                onImageCaptured(photoFile)
-            }
-
-            override fun onError(exception: ImageCaptureException) {
-                Log.e(TAG, "拍照失败", exception)
-            }
-        }
-    )
-}
-
-private fun applyAspectRatioToCapturedFile(
-    context: Context,
-    sourceFile: File,
-    ratioOption: AspectRatioOption
-): File {
-    val targetRatio = ratioOption.toTargetAspectRatio() ?: return sourceFile
-
-    if (ratioOption == AspectRatioOption.FULL) {
-        return sourceFile
-    }
-
-    val bitmap = ImageFileDecoder.decodeBitmapRespectingExif(sourceFile) ?: return sourceFile
-    val croppedBitmap = try {
-        com.photoframer.vision.ImageConverter.centerCropToAspectRatio(bitmap, targetRatio)
-    } catch (_: Exception) {
-        return sourceFile
-    }
-
-    val outFile = File(context.cacheDir, "capture_ratio_${System.currentTimeMillis()}.jpg")
-    return try {
-        FileOutputStream(outFile).use { output ->
-            croppedBitmap.compress(Bitmap.CompressFormat.JPEG, 95, output)
-        }
-        outFile
-    } catch (_: Exception) {
-        sourceFile
-    } finally {
-        if (croppedBitmap !== bitmap) {
-            bitmap.recycle()
-            croppedBitmap.recycle()
-        }
-    }
-}
-
-private fun AspectRatioOption.toTargetAspectRatio(): Float? {
-    return when (this) {
-        AspectRatioOption.RATIO_4_3 -> 4f / 3f
-        AspectRatioOption.RATIO_1_1 -> 1f
-        AspectRatioOption.FULL -> null
     }
 }
