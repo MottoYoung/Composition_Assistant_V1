@@ -42,7 +42,7 @@ internal fun ErrorOverlay(
     title: String,
     message: String,
     actionText: String,
-    onRetry: () -> Unit
+    onBack: () -> Unit
 ) {
     Box(
         modifier = Modifier
@@ -72,7 +72,7 @@ internal fun ErrorOverlay(
             Spacer(modifier = Modifier.height(24.dp))
 
             Button(
-                onClick = onRetry,
+                onClick = onBack,
                 colors = ButtonDefaults.buttonColors(containerColor = PurplePrimary)
             ) {
                 Text(actionText)

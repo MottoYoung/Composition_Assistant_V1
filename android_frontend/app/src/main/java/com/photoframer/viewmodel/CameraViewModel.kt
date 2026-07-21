@@ -35,14 +35,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 
-internal fun analysisErrorActionText(message: String): String {
-    return if (message.contains("服务") && message.contains("不可用")) {
-        "返回"
-    } else {
-        "重试"
-    }
-}
-
 /**
  * 相机 ViewModel
  * 管理 UI 状态和业务逻辑
@@ -61,16 +53,6 @@ class CameraViewModel : ViewModel() {
         val stepIndex: Int,
         val requestId: Long
     )
-
-    private data class PendingAnalysisRequest(
-        val mode: AnalysisMode,
-        val imageFile: File
-    )
-
-    private enum class AnalysisMode {
-        AiComposition,
-        InFrameComposition
-    }
 
     companion object {
         private const val STEP_TIMEOUT_MS = 15_000L
@@ -130,8 +112,6 @@ class CameraViewModel : ViewModel() {
     // 当前分析任务
     private var analysisJob: Job? = null
     private var stepTimeoutJob: Job? = null
-    private var pendingAnalysisRequest: PendingAnalysisRequest? = null
-
     // 引导会话与验证请求版本号，确保只有“当前步骤、当前请求”的结果可以生效
     private var guidanceSessionId = 0L
     private var latestValidationRequestId = 0L
@@ -143,10 +123,6 @@ class CameraViewModel : ViewModel() {
     fun analyzeImage(imageFile: File) {
         _postCapturePrompt.value = null
         _newCandidatePrompt.value = null
-        pendingAnalysisRequest = PendingAnalysisRequest(
-            mode = AnalysisMode.AiComposition,
-            imageFile = imageFile
-        )
         analysisJob?.cancel()  // 取消之前的分析任务
         analysisJob = viewModelScope.launch {
             _uiState.value = CameraUiState.Analyzing
@@ -193,8 +169,7 @@ class CameraViewModel : ViewModel() {
                             .onFailure { error ->
                                 val message = error.message ?: "网络错误，请检查连接"
                                 _uiState.value = CameraUiState.Error(
-                                    message = message,
-                                    actionText = analysisErrorActionText(message)
+                                    message = message
                                 )
                             }
                     }
@@ -210,10 +185,6 @@ class CameraViewModel : ViewModel() {
     fun analyzeInFrameComposition(imageFile: File) {
         _postCapturePrompt.value = null
         _newCandidatePrompt.value = null
-        pendingAnalysisRequest = PendingAnalysisRequest(
-            mode = AnalysisMode.InFrameComposition,
-            imageFile = imageFile
-        )
         analysisJob?.cancel()
         analysisJob = viewModelScope.launch {
             _uiState.value = CameraUiState.Analyzing
@@ -237,8 +208,7 @@ class CameraViewModel : ViewModel() {
                 val response = result.getOrElse { error ->
                     val message = error.message ?: "画面内构图分析失败"
                     _uiState.value = CameraUiState.Error(
-                        message = message,
-                        actionText = analysisErrorActionText(message)
+                        message = message
                     )
                     return@launch
                 }
@@ -477,12 +447,10 @@ class CameraViewModel : ViewModel() {
     ) {
         val currentState = _uiState.value
         if (currentState !is CameraUiState.Guiding) return
-        
+        if (_allStepsCompleted.value || isAutoAdvancing) return
+
         val step = currentState.currentStep ?: return
         val validator = stepValidator ?: return
-        
-        // 如果正在自动跳转，跳过验证
-        if (isAutoAdvancing) return
 
         val sessionId = guidanceSessionId
         val stepIndex = currentState.currentStepIndex
@@ -543,6 +511,8 @@ class CameraViewModel : ViewModel() {
      * 处理步骤完成
      */
     private fun handleStepCompleted(sessionId: Long, stepIndex: Int) {
+        if (_allStepsCompleted.value || isAutoAdvancing) return
+
         isAutoAdvancing = true
         _stepCompleted.value = true
         clearStepTimeout()
@@ -603,25 +573,8 @@ class CameraViewModel : ViewModel() {
         }
     }
 
-    fun retryLastAnalysis() {
-        val request = pendingAnalysisRequest
-            ?.takeIf { it.imageFile.exists() }
-            ?: run {
-                _uiState.value = CameraUiState.Preview
-                return
-            }
-
-        when (request.mode) {
-            AnalysisMode.AiComposition -> analyzeImage(request.imageFile)
-            AnalysisMode.InFrameComposition -> analyzeInFrameComposition(request.imageFile)
-        }
-    }
-
     fun handleErrorAction() {
-        val errorState = _uiState.value as? CameraUiState.Error
-        if (errorState?.actionText == "重试") {
-            retryLastAnalysis()
-        } else if (cachedCandidatesState != null) {
+        if (cachedCandidatesState != null) {
             backToCandidates()
         } else {
             backToPreview()
@@ -997,6 +950,7 @@ class CameraViewModel : ViewModel() {
     ) {
         if (requestId != latestValidationRequestId) return
         if (!isGuidanceStepCurrent(sessionId, stepIndex, validator)) return
+        if (_allStepsCompleted.value) return
 
         _validationResult.value = result
 

@@ -47,6 +47,6 @@ sealed class CameraUiState {
     data class Error(
         val message: String,
         val title: String = "出错了",
-        val actionText: String = "重试"
+        val actionText: String = "返回"
     ) : CameraUiState()
 }

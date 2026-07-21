@@ -804,7 +804,7 @@ fun CameraScreen(
                     title = errorState.title,
                     message = errorState.message,
                     actionText = errorState.actionText,
-                    onRetry = { viewModel.handleErrorAction() }
+                    onBack = { viewModel.handleErrorAction() }
                 )
             }
 
