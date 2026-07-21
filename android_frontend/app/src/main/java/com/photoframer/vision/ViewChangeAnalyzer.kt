@@ -8,7 +8,6 @@ import com.google.mlkit.vision.objects.ObjectDetection
 import com.google.mlkit.vision.objects.ObjectDetector
 import com.google.mlkit.vision.objects.defaults.ObjectDetectorOptions
 import com.photoframer.arcore.CameraPoseSample
-import com.photoframer.arcore.CameraPoseSource
 import com.photoframer.data.api.ShotSpec
 import com.photoframer.guidance.canonicalViewDirection
 import com.photoframer.guidance.normalizedActionType
@@ -29,30 +28,6 @@ data class ViewChangeAnalysisResult(
     val uiHintX: Float,
     val uiHintY: Float,
     val subjectConfidence: Float
-)
-
-private data class SubjectAssessment(
-    val hasSubject: Boolean,
-    val lockScore: Float,
-    val targetAlignmentScore: Float,
-    val sourceConsistencyScore: Float,
-    val targetOffsetX: Float,
-    val targetOffsetY: Float,
-    val requiresSubjectGate: Boolean,
-    val hasTargetAnchor: Boolean
-)
-
-private data class ActionProfile(
-    val arrivalThreshold: Float,
-    val directionThreshold: Float,
-    val subjectThreshold: Float,
-    val nearTargetArrivalThreshold: Float,
-    val targetSimilarityFloor: Float,
-    val targetAlignmentFloor: Float,
-    val nearTargetSimilarityFloor: Float,
-    val nearTargetAlignmentFloor: Float,
-    val nearTargetDirectionFloor: Float,
-    val requiredStableFrames: Int
 )
 
 /**
@@ -89,118 +64,9 @@ class ViewChangeAnalyzer(
 
     companion object {
         private const val HISTORY_CAPACITY = 8
-        private const val ARRIVAL_THRESHOLD = 0.52f
-        private const val ARRIVAL_THRESHOLD_VERTICAL = 0.40f
-        private const val ARRIVAL_THRESHOLD_LOWER_CAMERA = 0.42f
-        private const val ARRIVAL_THRESHOLD_ORBIT = 0.46f
-        private const val ARRIVAL_THRESHOLD_STEP = 0.45f
-        private const val DIRECTION_THRESHOLD = 0.40f
-        private const val DIRECTION_THRESHOLD_VERTICAL = 0.28f
-        private const val DIRECTION_THRESHOLD_LOWER_CAMERA = 0.20f
-        private const val DIRECTION_THRESHOLD_ORBIT = 0.22f
-        private const val DIRECTION_THRESHOLD_STEP = 0.22f
-        private const val SUBJECT_THRESHOLD = 0.42f
-        private const val SUBJECT_THRESHOLD_VERTICAL = 0.36f
-        private const val SUBJECT_THRESHOLD_LOWER_CAMERA = 0.32f
-        private const val SUBJECT_THRESHOLD_ORBIT = 0.28f
-        private const val SUBJECT_THRESHOLD_STEP = 0.24f
-        private const val NEAR_TARGET_ARRIVAL_VERTICAL = 0.66f
-        private const val NEAR_TARGET_ARRIVAL_LOWER_CAMERA = 0.60f
-        private const val NEAR_TARGET_ARRIVAL_ORBIT = 0.88f
-        private const val NEAR_TARGET_ARRIVAL_STEP = 0.86f
         private const val NEAR_TARGET_SUBJECT_MARGIN = 0.06f
-        private const val NEAR_TARGET_DIRECTION_FLOOR = 0.05f
-        private const val NEAR_TARGET_DIRECTION_FLOOR_VERTICAL = 0.01f
-        private const val ARCORE_VERTICAL_COMPLETION_FLOOR = 0.38f
-        private const val DEVICE_VERTICAL_COMPLETION_FLOOR = 0.46f
-        private const val GEOMETRY_COMPLETION_QUALITY_FLOOR = 0.45f
-        private const val GEOMETRY_DIRECTION_MARGIN_FLOOR = 0.16f
         private const val VERTICAL_SCENE_ARRIVAL_MARGIN = 0.06f
-        private const val TARGET_SIMILARITY_FLOOR_VERTICAL = 0.42f
-        private const val TARGET_SIMILARITY_FLOOR_LOWER_CAMERA = 0.40f
-        private const val TARGET_SIMILARITY_FLOOR_ORBIT = 0.54f
-        private const val TARGET_SIMILARITY_FLOOR_STEP = 0.52f
-        private const val TARGET_ALIGNMENT_FLOOR_VERTICAL = 0.32f
-        private const val TARGET_ALIGNMENT_FLOOR_LOWER_CAMERA = 0.22f
-        private const val TARGET_ALIGNMENT_FLOOR_ORBIT = 0.42f
-        private const val TARGET_ALIGNMENT_FLOOR_STEP = 0.40f
-        private const val NEAR_TARGET_SIMILARITY_FLOOR_VERTICAL = 0.48f
-        private const val NEAR_TARGET_SIMILARITY_FLOOR_LOWER_CAMERA = 0.45f
-        private const val NEAR_TARGET_SIMILARITY_FLOOR_ORBIT = 0.62f
-        private const val NEAR_TARGET_SIMILARITY_FLOOR_STEP = 0.60f
-        private const val NEAR_TARGET_ALIGNMENT_FLOOR_VERTICAL = 0.36f
-        private const val NEAR_TARGET_ALIGNMENT_FLOOR_LOWER_CAMERA = 0.26f
-        private const val NEAR_TARGET_ALIGNMENT_FLOOR_ORBIT = 0.46f
-        private const val NEAR_TARGET_ALIGNMENT_FLOOR_STEP = 0.44f
-        private const val STABLE_FRAME_COUNT = 3
-        private const val STABLE_FRAME_COUNT_VERTICAL = 2
-        private const val STABLE_FRAME_COUNT_LOWER_CAMERA = 3
-        private const val STABLE_FRAME_COUNT_MOVING_POSE = 2
         private const val SUBJECT_MISS_GRACE_FRAMES = 4
-
-        private val DEFAULT_ACTION_PROFILE = ActionProfile(
-            arrivalThreshold = ARRIVAL_THRESHOLD,
-            directionThreshold = DIRECTION_THRESHOLD,
-            subjectThreshold = SUBJECT_THRESHOLD,
-            nearTargetArrivalThreshold = 1f,
-            targetSimilarityFloor = 0f,
-            targetAlignmentFloor = 0f,
-            nearTargetSimilarityFloor = 0f,
-            nearTargetAlignmentFloor = 0f,
-            nearTargetDirectionFloor = NEAR_TARGET_DIRECTION_FLOOR,
-            requiredStableFrames = STABLE_FRAME_COUNT
-        )
-
-        private val ACTION_PROFILES = mapOf(
-            "raisecamera" to ActionProfile(
-                arrivalThreshold = ARRIVAL_THRESHOLD_VERTICAL,
-                directionThreshold = DIRECTION_THRESHOLD_VERTICAL,
-                subjectThreshold = SUBJECT_THRESHOLD_VERTICAL,
-                nearTargetArrivalThreshold = NEAR_TARGET_ARRIVAL_VERTICAL,
-                targetSimilarityFloor = TARGET_SIMILARITY_FLOOR_VERTICAL,
-                targetAlignmentFloor = TARGET_ALIGNMENT_FLOOR_VERTICAL,
-                nearTargetSimilarityFloor = NEAR_TARGET_SIMILARITY_FLOOR_VERTICAL,
-                nearTargetAlignmentFloor = NEAR_TARGET_ALIGNMENT_FLOOR_VERTICAL,
-                nearTargetDirectionFloor = NEAR_TARGET_DIRECTION_FLOOR_VERTICAL,
-                requiredStableFrames = STABLE_FRAME_COUNT_VERTICAL
-            ),
-            "lowercamera" to ActionProfile(
-                arrivalThreshold = ARRIVAL_THRESHOLD_LOWER_CAMERA,
-                directionThreshold = DIRECTION_THRESHOLD_LOWER_CAMERA,
-                subjectThreshold = SUBJECT_THRESHOLD_LOWER_CAMERA,
-                nearTargetArrivalThreshold = NEAR_TARGET_ARRIVAL_LOWER_CAMERA,
-                targetSimilarityFloor = TARGET_SIMILARITY_FLOOR_LOWER_CAMERA,
-                targetAlignmentFloor = TARGET_ALIGNMENT_FLOOR_LOWER_CAMERA,
-                nearTargetSimilarityFloor = NEAR_TARGET_SIMILARITY_FLOOR_LOWER_CAMERA,
-                nearTargetAlignmentFloor = NEAR_TARGET_ALIGNMENT_FLOOR_LOWER_CAMERA,
-                nearTargetDirectionFloor = NEAR_TARGET_DIRECTION_FLOOR_VERTICAL,
-                requiredStableFrames = STABLE_FRAME_COUNT_LOWER_CAMERA
-            ),
-            "orbit" to ActionProfile(
-                arrivalThreshold = ARRIVAL_THRESHOLD_ORBIT,
-                directionThreshold = DIRECTION_THRESHOLD_ORBIT,
-                subjectThreshold = SUBJECT_THRESHOLD_ORBIT,
-                nearTargetArrivalThreshold = NEAR_TARGET_ARRIVAL_ORBIT,
-                targetSimilarityFloor = TARGET_SIMILARITY_FLOOR_ORBIT,
-                targetAlignmentFloor = TARGET_ALIGNMENT_FLOOR_ORBIT,
-                nearTargetSimilarityFloor = NEAR_TARGET_SIMILARITY_FLOOR_ORBIT,
-                nearTargetAlignmentFloor = NEAR_TARGET_ALIGNMENT_FLOOR_ORBIT,
-                nearTargetDirectionFloor = NEAR_TARGET_DIRECTION_FLOOR,
-                requiredStableFrames = STABLE_FRAME_COUNT_MOVING_POSE
-            ),
-            "step" to ActionProfile(
-                arrivalThreshold = ARRIVAL_THRESHOLD_STEP,
-                directionThreshold = DIRECTION_THRESHOLD_STEP,
-                subjectThreshold = SUBJECT_THRESHOLD_STEP,
-                nearTargetArrivalThreshold = NEAR_TARGET_ARRIVAL_STEP,
-                targetSimilarityFloor = TARGET_SIMILARITY_FLOOR_STEP,
-                targetAlignmentFloor = TARGET_ALIGNMENT_FLOOR_STEP,
-                nearTargetSimilarityFloor = NEAR_TARGET_SIMILARITY_FLOOR_STEP,
-                nearTargetAlignmentFloor = NEAR_TARGET_ALIGNMENT_FLOOR_STEP,
-                nearTargetDirectionFloor = NEAR_TARGET_DIRECTION_FLOOR,
-                requiredStableFrames = STABLE_FRAME_COUNT_MOVING_POSE
-            )
-        )
     }
 
     init {
@@ -254,29 +120,32 @@ class ViewChangeAnalyzer(
         val isOrbitAction = normalizedActionType == "orbit"
         val isStepAction = normalizedActionType == "step"
         val isMovingPoseAction = isOrbitAction || isStepAction
-        val profile = actionProfile(normalizedActionType)
-        val blendedTargetSimilarity = blendTargetSimilarity(targetSimilarityScore, pHashSimilarity)
+        val profile = ViewChangeScoring.profile(normalizedActionType)
+        val blendedTargetSimilarity = ViewChangeScoring.blendTargetSimilarity(
+            targetSimilarityScore,
+            pHashSimilarity
+        )
 
         targetSimHistory.addLast(blendedTargetSimilarity)
         while (targetSimHistory.size > HISTORY_CAPACITY) targetSimHistory.removeFirst()
 
-        val targetGainScore = computeTargetGainScore(
+        val targetGainScore = ViewChangeScoring.targetGain(
             sourceSimilarityScore = sourceSimilarityScore,
             targetSimilarityScore = blendedTargetSimilarity,
             perspectiveScore = perspectiveScore
         )
-        val geometryActionScore = computeGeometryActionScore(
+        val geometryActionScore = ViewChangeScoring.geometryAction(
             normalizedActionType = normalizedActionType,
             direction = canonicalDirection,
-            viewGeometry = viewGeometry
+            geometry = viewGeometry
         )
-        val geometryOppositeScore = computeOppositeGeometryActionScore(
+        val geometryOppositeScore = ViewChangeScoring.oppositeGeometryAction(
             normalizedActionType = normalizedActionType,
             direction = canonicalDirection,
-            viewGeometry = viewGeometry
+            geometry = viewGeometry
         )
         val geometryDirectionMargin = geometryActionScore - geometryOppositeScore
-        val baseArrivalScore = computeBaseArrivalScore(
+        val baseArrivalScore = ViewChangeScoring.baseArrival(
             normalizedActionType = normalizedActionType,
             targetSimilarityScore = blendedTargetSimilarity,
             targetGainScore = targetGainScore,
@@ -284,8 +153,12 @@ class ViewChangeAnalyzer(
             geometryActionScore = geometryActionScore
         )
 
-        val poseScore = computePoseDirectionScore(actionType, canonicalDirection, cameraPoseSample)
-        val temporalScore = computeTemporalDirectionScore()
+        val poseScore = ViewChangeScoring.poseDirection(
+            actionType,
+            canonicalDirection,
+            cameraPoseSample
+        )
+        val temporalScore = ViewChangeScoring.temporalDirectionScore(targetSimHistory)
         val sensorDirectionScore = if (poseScore != null) {
             if (isVerticalCameraAction) {
                 max(
@@ -298,12 +171,12 @@ class ViewChangeAnalyzer(
         } else {
             temporalScore
         }
-        val directionScore = blendGeometryDirectionScore(
+        val directionScore = ViewChangeScoring.blendDirection(
             geometryScore = geometryActionScore,
             oppositeGeometryScore = geometryOppositeScore,
             sensorScore = sensorDirectionScore,
             temporalScore = temporalScore,
-            viewGeometry = viewGeometry
+            geometry = viewGeometry
         )
         val stepVisualDirectionSatisfied = isStepAction &&
             poseScore == null &&
@@ -311,7 +184,10 @@ class ViewChangeAnalyzer(
             blendedTargetSimilarity >= 0.52f &&
             baseArrivalScore >= (profile.arrivalThreshold - 0.05f)
 
-        val wristOnlyMotion = isLikelyWristOnlyMotion(actionType, cameraPoseSample)
+        val wristOnlyMotion = ViewChangeScoring.isLikelyWristOnlyMotion(
+            actionType,
+            cameraPoseSample
+        )
 
         val image = InputImage.fromBitmap(currentFrame, 0)
         objectDetector.process(image)
@@ -364,7 +240,7 @@ class ViewChangeAnalyzer(
                     } else {
                         (baseArrivalScore * 0.48f).coerceIn(0f, 0.36f)
                     }
-                    val uiHint = computeUiHint(
+                    val uiHint = ViewChangeFeedbackFormatter.uiHint(
                         actionType = actionType,
                         direction = canonicalDirection,
                         progress = reducedArrival,
@@ -432,8 +308,8 @@ class ViewChangeAnalyzer(
                     adjustedArrival >= profile.arrivalThreshold &&
                     directionScore >= profile.directionThreshold &&
                     subjectGateScore >= profile.subjectThreshold
-                val geometryDirectionReliable = hasReliableGeometryDirection(
-                    viewGeometry = viewGeometry,
+                val geometryDirectionReliable = ViewChangeScoring.hasReliableGeometryDirection(
+                    geometry = viewGeometry,
                     geometryActionScore = geometryActionScore,
                     geometryDirectionMargin = geometryDirectionMargin,
                     profile = profile
@@ -484,10 +360,10 @@ class ViewChangeAnalyzer(
                         )
                 val directionSatisfied = normalDirectionSatisfied || nearTargetSatisfied
                 val verticalPoseSatisfied = !isVerticalCameraAction ||
-                    isVerticalPoseCompletionSatisfied(
+                    ViewChangeScoring.verticalPoseCompletionSatisfied(
                         poseScore = poseScore,
                         sample = cameraPoseSample,
-                        viewGeometry = viewGeometry,
+                        geometry = viewGeometry,
                         geometryActionScore = geometryActionScore,
                         geometryDirectionMargin = geometryDirectionMargin
                     )
@@ -514,7 +390,7 @@ class ViewChangeAnalyzer(
                     0
                 }
                 val completed = stableCompletionFrames >= profile.requiredStableFrames
-                val uiProgress = computeDisplayedArrivalProgress(
+                val uiProgress = ViewChangeScoring.displayedArrivalProgress(
                     normalizedActionType = normalizedActionType,
                     baseArrivalScore = baseArrivalScore,
                     adjustedArrival = adjustedArrival,
@@ -525,7 +401,7 @@ class ViewChangeAnalyzer(
                     isCompleted = completed
                 )
 
-                val uiHint = computeUiHint(
+                val uiHint = ViewChangeFeedbackFormatter.uiHint(
                     actionType = actionType,
                     direction = canonicalDirection,
                     progress = uiProgress,
@@ -568,7 +444,7 @@ class ViewChangeAnalyzer(
                     ViewChangeAnalysisResult(
                         isCompleted = completed,
                         progress = uiProgress,
-                        feedbackText = generateFeedback(
+                        feedbackText = ViewChangeFeedbackFormatter.feedback(
                             actionType = actionType,
                             direction = canonicalDirection,
                             targetSimilarityScore = blendedTargetSimilarity,
@@ -599,7 +475,7 @@ class ViewChangeAnalyzer(
                 }
                 Log.e(TAG, "主体检测失败: ${error.message}")
                 val reducedArrival = (baseArrivalScore * 0.42f).coerceIn(0f, 0.32f)
-                val uiHint = computeUiHint(
+                val uiHint = ViewChangeFeedbackFormatter.uiHint(
                     actionType = actionType,
                     direction = canonicalDirection,
                     progress = reducedArrival,
@@ -622,80 +498,6 @@ class ViewChangeAnalyzer(
             }
     }
 
-    private fun computeTargetGainScore(
-        sourceSimilarityScore: Float,
-        targetSimilarityScore: Float,
-        perspectiveScore: Float
-    ): Float {
-        val similarityGap = targetSimilarityScore - sourceSimilarityScore
-        val gapScore = ((similarityGap + 0.18f) / 0.45f).coerceIn(0f, 1f)
-        val departureScore = ((1f - sourceSimilarityScore) * 0.55f + perspectiveScore * 0.45f)
-            .coerceIn(0f, 1f)
-        return (gapScore * 0.70f + departureScore * 0.30f).coerceIn(0f, 1f)
-    }
-
-    private fun computeGeometryActionScore(
-        normalizedActionType: String,
-        direction: String,
-        viewGeometry: ViewChangeGeometry
-    ): Float {
-        return when (normalizedActionType) {
-            "orbit" -> if (direction == "right") {
-                viewGeometry.orbitRightScore
-            } else {
-                viewGeometry.orbitLeftScore
-            }
-            "raisecamera" -> viewGeometry.raiseScore
-            "lowercamera" -> viewGeometry.lowerScore
-            "step" -> if (direction == "backward") {
-                viewGeometry.backwardScore
-            } else {
-                viewGeometry.forwardScore
-            }
-            else -> 0f
-        }.coerceIn(0f, 1f)
-    }
-
-    private fun computeOppositeGeometryActionScore(
-        normalizedActionType: String,
-        direction: String,
-        viewGeometry: ViewChangeGeometry
-    ): Float {
-        return when (normalizedActionType) {
-            "orbit" -> if (direction == "right") {
-                viewGeometry.orbitLeftScore
-            } else {
-                viewGeometry.orbitRightScore
-            }
-            "raisecamera" -> viewGeometry.lowerScore
-            "lowercamera" -> viewGeometry.raiseScore
-            "step" -> if (direction == "backward") {
-                viewGeometry.forwardScore
-            } else {
-                viewGeometry.backwardScore
-            }
-            else -> 0f
-        }.coerceIn(0f, 1f)
-    }
-
-    private fun blendGeometryDirectionScore(
-        geometryScore: Float,
-        oppositeGeometryScore: Float,
-        sensorScore: Float,
-        temporalScore: Float,
-        viewGeometry: ViewChangeGeometry
-    ): Float {
-        if (viewGeometry.quality <= 0.08f) {
-            return sensorScore
-        }
-        val signedGeometryScore = (geometryScore - oppositeGeometryScore * 0.70f).coerceIn(0f, 1f)
-        val geometryWeight = (0.45f + viewGeometry.quality * 0.35f).coerceIn(0.45f, 0.80f)
-        val blended = signedGeometryScore * geometryWeight +
-            sensorScore * (1f - geometryWeight) * 0.75f +
-            temporalScore * (1f - geometryWeight) * 0.25f
-        return blended.coerceIn(0f, 1f)
-    }
-
     private fun canUseSceneOnlyValidation(): Boolean {
         return sourceReferenceDetectionSettled &&
             targetReferenceDetectionSettled &&
@@ -712,7 +514,7 @@ class ViewChangeAnalyzer(
         normalizedActionType: String,
         actionType: String,
         direction: String,
-        profile: ActionProfile,
+        profile: ViewChangeActionProfile,
         baseArrivalScore: Float,
         blendedTargetSimilarity: Float,
         targetGainScore: Float,
@@ -745,8 +547,8 @@ class ViewChangeAnalyzer(
                     stepVisualDirectionSatisfied ||
                     orbitVisualDirectionSatisfied
                 )
-        val geometryDirectionReliable = hasReliableGeometryDirection(
-            viewGeometry = viewGeometry,
+        val geometryDirectionReliable = ViewChangeScoring.hasReliableGeometryDirection(
+            geometry = viewGeometry,
             geometryActionScore = geometryActionScore,
             geometryDirectionMargin = geometryDirectionMargin,
             profile = profile
@@ -762,10 +564,10 @@ class ViewChangeAnalyzer(
             (directionSatisfied || nearTargetSatisfied) &&
             (
                 !isVerticalCameraAction ||
-                    isVerticalPoseCompletionSatisfied(
+                    ViewChangeScoring.verticalPoseCompletionSatisfied(
                         poseScore = poseScore,
                         sample = cameraPoseSample,
-                        viewGeometry = viewGeometry,
+                        geometry = viewGeometry,
                         geometryActionScore = geometryActionScore,
                         geometryDirectionMargin = geometryDirectionMargin
                     )
@@ -776,10 +578,10 @@ class ViewChangeAnalyzer(
                 targetReady &&
                 geometryDirectionReliable &&
                 (directionSatisfied || nearTargetSatisfied) &&
-                isVerticalPoseCompletionSatisfied(
+                ViewChangeScoring.verticalPoseCompletionSatisfied(
                     poseScore = poseScore,
                     sample = cameraPoseSample,
-                    viewGeometry = viewGeometry,
+                    geometry = viewGeometry,
                     geometryActionScore = geometryActionScore,
                     geometryDirectionMargin = geometryDirectionMargin
                 ) &&
@@ -794,7 +596,7 @@ class ViewChangeAnalyzer(
             0
         }
         val completed = stableCompletionFrames >= profile.requiredStableFrames
-        val uiProgress = computeDisplayedArrivalProgress(
+        val uiProgress = ViewChangeScoring.displayedArrivalProgress(
             normalizedActionType = normalizedActionType,
             baseArrivalScore = baseArrivalScore,
             adjustedArrival = sceneArrival,
@@ -804,13 +606,13 @@ class ViewChangeAnalyzer(
             nearTargetSatisfied = nearTargetSatisfied,
             isCompleted = completed
         )
-        val uiHint = computeUiHint(
+        val uiHint = ViewChangeFeedbackFormatter.uiHint(
             actionType = actionType,
             direction = direction,
             progress = uiProgress,
             subjectAssessment = null
         )
-        val feedback = generateSceneOnlyFeedback(
+        val feedback = ViewChangeFeedbackFormatter.sceneOnlyFeedback(
             actionType = actionType,
             direction = direction,
             targetGainScore = targetGainScore,
@@ -855,245 +657,6 @@ class ViewChangeAnalyzer(
             uiHintY = uiHint.second,
             subjectConfidence = 0f
         )
-    }
-
-    private fun actionProfile(normalizedActionType: String): ActionProfile {
-        return ACTION_PROFILES[normalizedActionType] ?: DEFAULT_ACTION_PROFILE
-    }
-
-    private fun hasReliableGeometryDirection(
-        viewGeometry: ViewChangeGeometry,
-        geometryActionScore: Float,
-        geometryDirectionMargin: Float,
-        profile: ActionProfile
-    ): Boolean {
-        return viewGeometry.quality >= GEOMETRY_COMPLETION_QUALITY_FLOOR &&
-            geometryActionScore >= profile.directionThreshold &&
-            geometryDirectionMargin >= GEOMETRY_DIRECTION_MARGIN_FLOOR
-    }
-
-    private fun blendTargetSimilarity(
-        targetSimilarityScore: Float,
-        pHashSimilarity: Float
-    ): Float {
-        return (targetSimilarityScore * 0.6f + pHashSimilarity * 0.4f).coerceIn(0f, 1f)
-    }
-
-    private fun computeBaseArrivalScore(
-        normalizedActionType: String,
-        targetSimilarityScore: Float,
-        targetGainScore: Float,
-        perspectiveScore: Float,
-        geometryActionScore: Float
-    ): Float {
-        return when (normalizedActionType) {
-            "raisecamera" -> (
-                geometryActionScore * 0.34f +
-                    perspectiveScore * 0.18f +
-                    targetGainScore * 0.26f +
-                    targetSimilarityScore * 0.22f
-                ).coerceIn(0f, 1f)
-            "lowercamera" -> (
-                geometryActionScore * 0.34f +
-                    perspectiveScore * 0.18f +
-                    targetGainScore * 0.26f +
-                    targetSimilarityScore * 0.22f
-                ).coerceIn(0f, 1f)
-            "orbit" -> (
-                geometryActionScore * 0.36f +
-                    perspectiveScore * 0.16f +
-                    targetGainScore * 0.26f +
-                    targetSimilarityScore * 0.22f
-                ).coerceIn(0f, 1f)
-            "step" -> (
-                geometryActionScore * 0.34f +
-                    targetGainScore * 0.30f +
-                    targetSimilarityScore * 0.26f +
-                    perspectiveScore * 0.10f
-                ).coerceIn(0f, 1f)
-            else -> (
-                targetSimilarityScore * 0.55f +
-                    targetGainScore * 0.30f +
-                    perspectiveScore * 0.15f
-                ).coerceIn(0f, 1f)
-        }
-    }
-
-    private fun computeTemporalDirectionScore(): Float {
-        if (targetSimHistory.size < 4) return 0.22f
-
-        val samples = targetSimHistory.toList()
-        val windowSize = minOf(3, samples.size / 2)
-        val earlyMean = samples.take(windowSize).average().toFloat()
-        val recentMean = samples.takeLast(windowSize).average().toFloat()
-
-        val trend = recentMean - earlyMean
-        return (0.5f + trend / 0.20f).coerceIn(0f, 1f)
-    }
-
-    private fun computeDisplayedArrivalProgress(
-        normalizedActionType: String,
-        baseArrivalScore: Float,
-        adjustedArrival: Float,
-        targetSimilarityScore: Float,
-        directionScore: Float,
-        poseScore: Float?,
-        nearTargetSatisfied: Boolean,
-        isCompleted: Boolean
-    ): Float {
-        if (isCompleted) return 1f
-
-        return when (normalizedActionType) {
-            "orbit" -> {
-                val poseAwareScore = if (poseScore != null) {
-                    (baseArrivalScore * 0.50f +
-                        adjustedArrival * 0.22f +
-                        targetSimilarityScore * 0.12f +
-                        poseScore * 0.16f).coerceIn(0f, 1f)
-                } else {
-                    (baseArrivalScore * 0.68f +
-                        adjustedArrival * 0.22f +
-                        targetSimilarityScore * 0.10f).coerceIn(0f, 1f)
-                }
-                val normalized = ((poseAwareScore - 0.12f) / (NEAR_TARGET_ARRIVAL_ORBIT - 0.12f))
-                    .coerceIn(0f, 1f)
-                val directionBoost = (directionScore * 0.08f).coerceIn(0f, 0.08f)
-                val progress = max(normalized, adjustedArrival * 0.92f) + directionBoost
-                if (nearTargetSatisfied) {
-                    progress.coerceAtLeast(0.94f).coerceIn(0f, 0.99f)
-                } else {
-                    progress.coerceIn(0f, 0.98f)
-                }
-            }
-            else -> adjustedArrival
-        }
-    }
-
-    private fun computePoseDirectionScore(
-        actionType: String,
-        direction: String,
-        cameraPoseSample: CameraPoseSample?
-    ): Float? {
-        val sample = cameraPoseSample ?: return null
-        return when (actionType.normalizedActionType()) {
-            "raisecamera" -> computeVerticalPoseScore(sample, shouldRaise = true)
-            "lowercamera" -> computeVerticalPoseScore(sample, shouldRaise = false)
-            "step" -> computeStepPoseScore(sample, direction)
-            "orbit" -> computeOrbitPoseScore(sample, direction)
-            else -> null
-        }
-    }
-
-    private fun computeVerticalPoseScore(
-        sample: CameraPoseSample,
-        shouldRaise: Boolean
-    ): Float {
-        if (!sample.isTracking) {
-            return 0f
-        }
-
-        if (sample.source != CameraPoseSource.ARCORE) {
-            val signedPitchDelta = if (shouldRaise) {
-                -sample.pitchDeltaDegrees
-            } else {
-                sample.pitchDeltaDegrees
-            }
-            return (0.12f + (signedPitchDelta / 14f) * 0.48f).coerceIn(0f, 0.55f)
-        }
-
-        val verticalProgress = if (shouldRaise) {
-            sample.verticalMeters / 0.07f
-        } else {
-            -sample.verticalMeters / 0.06f
-        }
-
-        return (0.18f + verticalProgress * 0.82f).coerceIn(0f, 1f)
-    }
-
-    private fun isVerticalPoseCompletionSatisfied(
-        poseScore: Float?,
-        sample: CameraPoseSample?,
-        viewGeometry: ViewChangeGeometry,
-        geometryActionScore: Float,
-        geometryDirectionMargin: Float
-    ): Boolean {
-        val geometrySatisfied = viewGeometry.quality >= GEOMETRY_COMPLETION_QUALITY_FLOOR &&
-            geometryActionScore >= DIRECTION_THRESHOLD_LOWER_CAMERA &&
-            geometryDirectionMargin >= GEOMETRY_DIRECTION_MARGIN_FLOOR
-        val score = poseScore
-        val poseSatisfied = when {
-            score == null -> false
-            sample?.source == CameraPoseSource.ARCORE && sample.isTracking -> {
-                score >= ARCORE_VERTICAL_COMPLETION_FLOOR
-            }
-            else -> score >= DEVICE_VERTICAL_COMPLETION_FLOOR
-        }
-        return poseSatisfied || geometrySatisfied
-    }
-
-    private fun computeStepPoseScore(
-        sample: CameraPoseSample,
-        direction: String
-    ): Float? {
-        if (sample.source != CameraPoseSource.ARCORE || !sample.isTracking) {
-            return null
-        }
-
-        val forwardProgress = if (direction.canonicalViewDirection() == "backward") {
-            -sample.forwardMeters / 0.16f
-        } else {
-            sample.forwardMeters / 0.16f
-        }
-
-        return (0.18f + forwardProgress * 0.82f).coerceIn(0f, 1f)
-    }
-
-    private fun computeOrbitPoseScore(
-        sample: CameraPoseSample,
-        direction: String
-    ): Float {
-        val moveRight = direction.canonicalViewDirection() == "right"
-        // When users orbit around a subject, they often rotate the phone opposite to the walking
-        // direction to keep the subject in frame. Treat yaw as weak evidence; lateral ARCore motion
-        // is the reliable signed signal for left/right orbit.
-        val signedYawDelta = if (moveRight) {
-            -sample.yawDeltaDegrees
-        } else {
-            sample.yawDeltaDegrees
-        }
-        val yawProgress = (0.08f + (signedYawDelta / 24f) * 0.42f).coerceIn(0f, 0.50f)
-
-        if (sample.source != CameraPoseSource.ARCORE || !sample.isTracking) {
-            return yawProgress
-        }
-
-        val lateralProgress = if (moveRight) {
-            sample.lateralMeters / 0.14f
-        } else {
-            -sample.lateralMeters / 0.14f
-        }
-        val lateralScore = (0.15f + lateralProgress * 0.85f).coerceIn(0f, 1f)
-
-        return max(
-            lateralScore * 0.88f + yawProgress * 0.12f,
-            lateralScore
-        ).coerceIn(0f, 1f)
-    }
-
-    private fun isLikelyWristOnlyMotion(
-        actionType: String,
-        cameraPoseSample: CameraPoseSample?
-    ): Boolean {
-        val sample = cameraPoseSample ?: return false
-        if (actionType.normalizedActionType() !in setOf("raisecamera", "lowercamera")) {
-            return false
-        }
-
-        val tiltMagnitude = max(abs(sample.pitchDeltaDegrees), abs(sample.rollDeltaDegrees))
-        if (!sample.isTracking) return false
-        if (sample.source != CameraPoseSource.ARCORE) return false
-
-        return abs(sample.verticalMeters) < 0.03f && tiltMagnitude > 8f
     }
 
     private fun detectReferenceObject(
@@ -1295,47 +858,6 @@ class ViewChangeAnalyzer(
         return (aspectScore * 0.62f + sizeScore * 0.38f).coerceIn(0f, 1f)
     }
 
-    private fun computeUiHint(
-        actionType: String,
-        direction: String,
-        progress: Float,
-        subjectAssessment: SubjectAssessment?
-    ): Pair<Float, Float> {
-        val decay = (1f - progress).coerceIn(0.1f, 1f)
-        val magnitude = 120f * decay
-
-        var hintX = when (actionType.normalizedActionType()) {
-            "orbit" -> if (direction.canonicalViewDirection() == "right") magnitude else -magnitude
-            else -> when (direction.canonicalViewDirection()) {
-                "right" -> magnitude
-                "left" -> -magnitude
-                else -> 0f
-            }
-        }
-        var hintY = when (actionType.normalizedActionType()) {
-            "raisecamera" -> -magnitude
-            "lowercamera" -> magnitude
-            "step" -> if (direction.equals("backward", ignoreCase = true)) {
-                -magnitude * 0.5f
-            } else {
-                magnitude * 0.5f
-            }
-            else -> when (direction.lowercase()) {
-                "high-angle" -> -magnitude
-                "low-angle" -> magnitude
-                else -> 0f
-            }
-        }
-
-        if (subjectAssessment != null && subjectAssessment.hasTargetAnchor) {
-            val subjectWeight = (0.10f + subjectAssessment.lockScore * 0.28f).coerceIn(0.10f, 0.38f)
-            hintX += subjectAssessment.targetOffsetX * 180f * subjectWeight
-            hintY += subjectAssessment.targetOffsetY * 200f * subjectWeight
-        }
-
-        return hintX.coerceIn(-150f, 150f) to hintY.coerceIn(-160f, 160f)
-    }
-
     private fun softenedMovingPoseSubjectScore(subjectAssessment: SubjectAssessment): Float {
         val consistencyFloor = (subjectAssessment.sourceConsistencyScore * 0.78f + 0.18f)
             .coerceIn(0f, 1f)
@@ -1389,170 +911,6 @@ class ViewChangeAnalyzer(
             width = rect.width().toFloat() / imageWidth,
             height = rect.height().toFloat() / imageHeight
         )
-    }
-
-    private fun generateFeedback(
-        actionType: String,
-        direction: String,
-        targetSimilarityScore: Float,
-        targetGainScore: Float,
-        arrivalScore: Float,
-        directionScore: Float,
-        cameraPoseSample: CameraPoseSample?,
-        subjectAssessment: SubjectAssessment,
-        nearTargetSatisfied: Boolean,
-        isCompleted: Boolean
-    ): String {
-        if (isCompleted) {
-            return "✓ 机位与主体都已接近参考图"
-        }
-
-        if (nearTargetSatisfied) {
-            return "机位差不多了，准备微调构图"
-        }
-
-        if (!subjectAssessment.hasSubject) {
-            return "主体快丢了，先把主体带回画面再继续"
-        }
-
-        if (subjectAssessment.lockScore < 0.20f) {
-            return "先稳住主体，不要切到别的物体"
-        }
-
-        if (subjectAssessment.hasTargetAnchor && subjectAssessment.targetAlignmentScore < 0.26f) {
-            return subjectPositionCorrection(subjectAssessment)
-        }
-
-        if (isLikelyWristOnlyMotion(actionType, cameraPoseSample)) {
-            return when (actionType.normalizedActionType()) {
-                "lowercamera" -> "不是只低头拍，把手机整体放低一点"
-                "raisecamera" -> "不是只仰头拍，把手机整体抬高一点"
-                else -> "继续带着手机整体移动，不是只转手腕"
-            }
-        }
-
-        if (targetGainScore < 0.34f) {
-            return movementPrompt(actionType, direction, stronger = true)
-        }
-
-        val normalizedActionType = actionType.normalizedActionType()
-        if (
-            normalizedActionType in setOf("raisecamera", "lowercamera") &&
-            cameraPoseSample?.isTracking == true &&
-            directionScore < 0.34f
-        ) {
-            return when (normalizedActionType) {
-                "lowercamera" -> "把手机整体再放低一点，主体别跑出画面"
-                "raisecamera" -> "把手机整体再抬高一点，主体别跑出画面"
-                else -> movementPrompt(actionType, direction, stronger = true)
-            }
-        }
-
-        if (directionScore < 0.40f) {
-            return movementDirectionCorrection(actionType, direction)
-        }
-
-        if (subjectAssessment.lockScore < 0.42f) {
-            return "方向对了，先把主体稳在参考图位置附近"
-        }
-
-        if (targetSimilarityScore < 0.55f || arrivalScore < 0.58f) {
-            return movementPrompt(actionType, direction, stronger = false)
-        }
-
-        return "方向对了，继续微调到参考图位置"
-    }
-
-    private fun generateSceneOnlyFeedback(
-        actionType: String,
-        direction: String,
-        targetGainScore: Float,
-        directionScore: Float,
-        nearTargetSatisfied: Boolean,
-        isCompleted: Boolean,
-        cameraPoseSample: CameraPoseSample?
-    ): String {
-        if (isCompleted) {
-            return "✓ 机位已接近参考视角"
-        }
-
-        if (nearTargetSatisfied) {
-            return "机位差不多了，准备微调构图"
-        }
-
-        if (isLikelyWristOnlyMotion(actionType, cameraPoseSample)) {
-            return when (actionType.normalizedActionType()) {
-                "lowercamera" -> "不是只低头拍，把手机整体放低一点"
-                "raisecamera" -> "不是只仰头拍，把手机整体抬高一点"
-                else -> "继续带着手机整体移动，不是只转手腕"
-            }
-        }
-
-        if (targetGainScore < 0.34f) {
-            return movementPrompt(actionType, direction, stronger = true)
-        }
-
-        if (directionScore < 0.40f) {
-            return movementDirectionCorrection(actionType, direction)
-        }
-
-        return movementPrompt(actionType, direction, stronger = false)
-    }
-
-    private fun subjectPositionCorrection(subjectAssessment: SubjectAssessment): String {
-        val absX = abs(subjectAssessment.targetOffsetX)
-        val absY = abs(subjectAssessment.targetOffsetY)
-        return when {
-            absX > absY && subjectAssessment.targetOffsetX > 0.04f -> "保持机位方向，同时让主体再往右一点"
-            absX > absY && subjectAssessment.targetOffsetX < -0.04f -> "保持机位方向，同时让主体再往左一点"
-            absY >= absX && subjectAssessment.targetOffsetY > 0.04f -> "保持机位方向，同时让主体再往下稳一点"
-            absY >= absX && subjectAssessment.targetOffsetY < -0.04f -> "保持机位方向，同时让主体再往上稳一点"
-            else -> "继续移动，但别让主体跑偏"
-        }
-    }
-
-    private fun movementPrompt(actionType: String, direction: String, stronger: Boolean): String {
-        return when (actionType.normalizedActionType()) {
-            "orbit" -> if (direction.canonicalViewDirection() == "right") {
-                if (stronger) "继续向右绕主体移动" else "方向对了，再向右绕一点"
-            } else {
-                if (stronger) "继续向左绕主体移动" else "方向对了，再向左绕一点"
-            }
-            "raisecamera" -> if (stronger) {
-                "先把手机整体抬高，再轻轻下压镜头"
-            } else {
-                "再抬高一点，保持主体别跑掉"
-            }
-            "lowercamera" -> if (stronger) {
-                "先把手机整体放低，不是只把镜头往下压"
-            } else {
-                "再放低一点，并轻轻上扬镜头"
-            }
-            "step" -> if (direction.equals("backward", ignoreCase = true)) {
-                if (stronger) "继续后退一点" else "再后退半步"
-            } else {
-                if (stronger) "继续靠近主体" else "再靠近一点"
-            }
-            else -> "继续改变机位，逼近参考图"
-        }
-    }
-
-    private fun movementDirectionCorrection(actionType: String, direction: String): String {
-        return when (actionType.normalizedActionType()) {
-            "orbit" -> if (direction.canonicalViewDirection() == "right") {
-                "方向还不对，再往主体右侧绕"
-            } else {
-                "方向还不对，再往主体左侧绕"
-            }
-            "raisecamera" -> "不是只仰头拍，把手机整体抬高一点"
-            "lowercamera" -> "不是只低头拍，把手机整体放低一点"
-            "step" -> if (direction.equals("backward", ignoreCase = true)) {
-                "方向还不对，带着主体再后退一点"
-            } else {
-                "方向还不对，带着主体再靠近一点"
-            }
-            else -> "方向还不对，再调整机位"
-        }
     }
 
     fun close() {
