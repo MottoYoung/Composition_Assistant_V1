@@ -3,8 +3,8 @@
 
 目标：
 1. Stage 0（软预筛）、Stage 1（分析）与 Stage 2（生图）可独立切换 provider / model
-2. 默认使用 Gemini 组合，避免 Qwen 官方速率限制影响默认体验
-3. Stage 2 支持 Gemini、Qwen、OpenRouter 三种 provider
+2. 默认使用 Gemini 负责分析，OpenRouter 负责 Stage 2 生图
+3. 同时支持 Gemini、Qwen、OpenRouter 作为可组合 provider 接入
 """
 
 import os
@@ -18,12 +18,12 @@ def _api_key(name: str) -> str:
 
 
 # ==================== Provider（qwen/gemini/openrouter）选择 ==================== #
-# STAGE1_PROVIDER = "gemini"
-# STAGE2_PROVIDER = "gemini"
+STAGE1_PROVIDER = "gemini"
+STAGE2_PROVIDER = "gemini"
 
 
-STAGE1_PROVIDER = "qwen"
-STAGE2_PROVIDER = "qwen"
+# STAGE1_PROVIDER = "qwen"
+# STAGE2_PROVIDER = "qwen"
 # STAGE2_PROVIDER = "openrouter"
 
 # Stage 0 是预筛阶段，默认跟随 Stage 1，也可以单独指定为 "gemini" 或 "qwen"。
@@ -46,7 +46,7 @@ IMAGE_DASHSCOPE_BASE_URL = "https://dashscope.aliyuncs.com/api/v1"
 USE_GEMINI_PROXY = True
 GEMINI_PROXY_URL = "http://127.0.0.1:11087"
 
-# OpenRouter 默认复用 Gemini 的本地代理。
+# OpenRouter 默认复用本地代理；如果你的代理是 socks，请先确认 urllib 运行环境支持该协议。
 USE_OPENROUTER_PROXY = True
 OPENROUTER_PROXY_URL = os.environ.get("OPENROUTER_PROXY_URL", GEMINI_PROXY_URL).strip()
 # Gemini 国内中转配置：
@@ -60,25 +60,23 @@ GEMINI_DOMESTIC_API_VERSION = "v1beta"
 
 
 # ==================== 模型配置 ==================== #
+## Qwen
 QWEN_STAGE1_MODEL = "qwen3.7-plus"
 QWEN_STAGE2_MODEL = "qwen-image-2.0"
 QWEN_STAGE0_MODEL = QWEN_STAGE1_MODEL
 
-GEMINI_STAGE1_MODEL = "gemini-3-flash-preview"
-# 常用 Gemini Stage 1 候选：
-# - gemini-2.5-flash
-# - gemini-2.5-flash-lite
-# - gemini-2.5-pro
+## Gemini
+
+GEMINI_STAGE1_MODEL = "gemini-3.5-flash"
 GEMINI_STAGE2_MODEL = "gemini-2.5-flash-image"
-# 常用 Gemini Stage 2 候选：
-# - gemini-2.5-flash-image
-# - gemini-2.0-flash-preview-image-generation
-# - gemini-3.1-flash-image-preview
-# - gemini-3-pro-image-preview
-GEMINI_STAGE0_MODEL = "gemini-3.1-flash-lite"
+GEMINI_STAGE0_MODEL = "gemini-3.5-flash"
+
+## OpenRouter-gemini
 
 OPENROUTER_STAGE2_MODEL = "google/gemini-3.1-flash-lite-image"
 
+
+## 获取模型名称
 def get_stage0_model_name() -> str:
     return GEMINI_STAGE0_MODEL if STAGE0_PROVIDER == "gemini" else QWEN_STAGE0_MODEL
 
@@ -99,7 +97,9 @@ def get_stage2_model_name() -> str:
 BASE_DIR = Path(__file__).resolve().parent
 TEMP_DIR = BASE_DIR / "temp"
 PROMPTS_DIR = BASE_DIR / "prompts"
-PROMPT_SET = os.environ.get("PROMPT_SET", "default").strip() or "default"
+#PROMPT_SET = "default"
+#PROMPT_SET = "self_written"
+PROMPT_SET = "photographer_eye"
 PHOTOGRAPHER_EYE_DIRECTION_MODE = PROMPT_SET == "photographer_eye"
 
 TEMP_DIR.mkdir(exist_ok=True)
@@ -246,6 +246,7 @@ GEMINI_STAGE2_MAX_RETRIES = 2
 GEMINI_STAGE2_RETRY_BASE_DELAY_MS = 450
 
 # OpenRouter Stage 2 专用参数。
+# google/gemini-3.1-flash-lite-image 当前只支持 1K、n=1、非流式输出。
 OPENROUTER_IMAGE_API_URL = "https://openrouter.ai/api/v1/images"
 OPENROUTER_STAGE2_RESOLUTION = os.environ.get("OPENROUTER_STAGE2_RESOLUTION", "1K").strip() or "1K"
 OPENROUTER_STAGE2_ASPECT_RATIO = os.environ.get("OPENROUTER_STAGE2_ASPECT_RATIO", "").strip()

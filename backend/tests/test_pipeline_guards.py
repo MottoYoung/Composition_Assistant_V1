@@ -366,7 +366,13 @@ class CompositionPipelineGuardTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("门框完整圈住主体", tasks[1].user_prompt)
 
     def test_prompt_sets_have_required_assets(self):
-        for prompt_set in ("photographer_eye",):
+        for prompt_set in (
+            "default",
+            "self_written",
+            "photographer_eye",
+            "problem_first_recall",
+            "v2",
+        ):
             prompt_dir = BACKEND_DIR / "prompts" / prompt_set
             required_files = [
                 prompt_dir / "stage0_soft_prefilter.md",

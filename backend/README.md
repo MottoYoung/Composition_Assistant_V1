@@ -102,9 +102,14 @@ backend
 │   ├── gemini_profiles.py
 │   └── prompt_adapters.py
 ├── prompts
-│   ├── stage0_soft_prefilter.md
-│   ├── stage1_system_instruction.md
-│   └── techniques
+│   ├── default
+│   │   ├── stage0_soft_prefilter.md
+│   │   ├── stage1_system_instruction.md
+│   │   └── techniques
+│   └── problem_first_recall
+│       ├── stage0_soft_prefilter.md
+│       ├── stage1_system_instruction.md
+│       └── techniques
 └── tests
     └── test_pipeline_guards.py
 ```
@@ -115,15 +120,36 @@ backend
 
 提示词不写死在 provider 里，而是放在：
 
-- `prompts/stage1_system_instruction.md`
-- `prompts/stage0_soft_prefilter.md`
-- `prompts/techniques/*.md`
+- `prompts/default/stage1_system_instruction.md`
+- `prompts/default/stage0_soft_prefilter.md`
+- `prompts/default/techniques/*.md`
+- `prompts/problem_first_recall/...`
 
 这样做的好处是：
 
 - 更方便调 prompt
 - 更方便记录实验
 - 更适合做论文/答辩里的方法说明
+
+当前运行时通过 `PROMPT_SET` 选择一整套 prompt 资产：
+
+```python
+PROMPT_SET = "default"
+```
+
+三类 prompt 路径会由 `PROMPT_SET` 自动派生：
+
+```python
+STAGE1_SYSTEM_PROMPT_PATH = f"{PROMPT_SET}/stage1_system_instruction.md"
+STAGE0_SOFT_PREFILTER_PROMPT_PATH = f"{PROMPT_SET}/stage0_soft_prefilter.md"
+TECHNIQUE_PROMPT_DIR = f"{PROMPT_SET}/techniques"
+```
+
+如果要试验另一套 prompt 组合，可以通过环境变量切换：
+
+```bash
+export PROMPT_SET=problem_first_recall
+```
 
 ### 2. 流式 prompt 前置
 
@@ -260,6 +286,7 @@ export GEMINI_API_KEY=your_gemini_key
 常用配置集中在 `config.py`：
 
 - Provider：`STAGE0_PROVIDER`、`STAGE1_PROVIDER`、`STAGE2_PROVIDER`
+- Prompt set：`PROMPT_SET`
 - 模型：`QWEN_STAGE*_MODEL`、`GEMINI_STAGE*_MODEL`
 - Stage 0：`ENABLE_STAGE0`、`STAGE0_MAX_TECHNIQUES`、`STAGE0_TEMPERATURE`、`STAGE0_TOP_P`
 - 吞吐与超时：`STAGE1_MAX_CONCURRENCY`、`STAGE1_TIMEOUT_SECONDS`、`STAGE2_TIMEOUT_SECONDS`
@@ -267,9 +294,10 @@ export GEMINI_API_KEY=your_gemini_key
 - Gemini 代理 / 中转：`USE_GEMINI_PROXY`、`GEMINI_PROXY_URL`、`USE_GEMINI_DOMESTIC_API`
 - Qwen 图像侧限速：`IMAGE_MAX_RATE`
 
-环境变量只用于注入敏感 key：
+环境变量可用于切换 prompt set 或注入敏感 key：
 
 ```bash
+export PROMPT_SET=problem_first_recall
 export GEMINI_API_KEY=your_gemini_key
 export GEMINI_DOMESTIC_API_KEY=your_domestic_key
 export DASHSCOPE_API_KEY=your_dashscope_key
