@@ -1,6 +1,7 @@
 """
 Gemini Stage 0 provider。
-职责：对候选构图技术做软预筛，返回更值得进入 Stage 1 的 technique 列表。
+职责：常规提示词集下软预筛候选构图技术；photographer_eye 模式下选择拍摄方向，
+并将其转换为运行时 Stage 1 任务。
 """
 import asyncio
 import base64

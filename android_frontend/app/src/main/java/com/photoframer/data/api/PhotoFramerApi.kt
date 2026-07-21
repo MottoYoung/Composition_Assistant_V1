@@ -4,7 +4,7 @@ import okhttp3.MultipartBody
 import retrofit2.http.*
 
 /**
- * PhotoFramer API 接口定义 (v3.1 并行化后端)
+ * PhotoFramer API 接口定义（支持 SSE 流式候选与并行分析）。
  */
 interface PhotoFramerApi {
     

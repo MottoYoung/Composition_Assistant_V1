@@ -34,7 +34,7 @@ data class ShotSpec(
 )
 
 /**
- * 单个构图方案 (v3.1 并行化后端格式)
+ * 单个构图方案（SSE 流式候选与普通响应共用的格式）
  */
 data class CompositionResult(
     @SerializedName("technique")
@@ -114,7 +114,7 @@ data class StreamSummaryEvent(
 )
 
 /**
- * API 响应 (v3.1 并行化后端格式)
+ * API 响应（并行候选分析格式）
  */
 data class AnalysisResponse(
     @SerializedName("success")

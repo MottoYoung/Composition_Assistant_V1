@@ -2,7 +2,7 @@
 
 `backend` 是当前 PhotoFramer 的后端主干。它的实际运行架构是三阶段流水线：
 
-- Stage 0：候选构图技术软预筛
+- Stage 0：候选构图技术软预筛；在摄影眼模式下选择拍摄方向并生成运行时任务
 - Stage 1：构图分析、步骤生成与 `image_prompt` 产出
 - Stage 2：参考构图图生成
 
@@ -43,9 +43,11 @@ flowchart LR
     H --> I["普通响应或 SSE 流式返回"]
 ```
 
-## 当前支持的构图 technique
+## 当前候选任务
 
-来自 `config.py` 的默认 technique 列表：
+当前 `config.py` 使用 `PROMPT_SET = "photographer_eye"`。Stage 0 会根据画面从摄影方向中选择可行机会，再将其转换为运行时 Stage 1 任务；返回字段仍沿用 `technique` / `technique_name`，以保持前端协议兼容。
+
+固定构图 technique 列表仍作为兼容资产加载：
 
 - `rule_of_thirds`
 - `center_composition`
@@ -59,7 +61,7 @@ flowchart LR
 
 - Stage 0：`gemini` / `qwen`
 - Stage 1：`gemini` / `qwen`
-- Stage 2：`gemini` / `qwen`
+- Stage 2：`gemini` / `qwen` / `openrouter`
 
 因此可以自由组合，例如：
 
@@ -67,14 +69,15 @@ flowchart LR
 - `gemini -> gemini -> qwen`
 - `qwen -> qwen -> gemini`
 - `qwen -> gemini -> gemini`
+- `gemini -> gemini -> openrouter`
 
-当前 `config.py` 默认使用 Qwen 组合：
+当前 `config.py` 默认使用 Gemini 组合：
 
-- `STAGE1_PROVIDER = "qwen"`
-- `STAGE2_PROVIDER = "qwen"`
+- `STAGE1_PROVIDER = "gemini"`
+- `STAGE2_PROVIDER = "gemini"`
 - `STAGE0_PROVIDER = STAGE1_PROVIDER`
 
-Stage 0 当前默认关闭（`ENABLE_STAGE0 = False`），开启后才会进入预筛流程。
+Stage 0 当前默认开启（`ENABLE_STAGE0 = True`）。摄影眼模式依赖它生成运行时方向任务；关闭后不会回退到固定构图 technique。
 
 ## 目录结构
 
@@ -97,19 +100,20 @@ backend
 │   ├── stage1_gemini_provider.py
 │   ├── stage1_qwen_provider.py
 │   ├── stage2_gemini_provider.py
+│   ├── stage2_openrouter_provider.py
 │   ├── stage2_qwen_provider.py
 │   ├── gemini_client_factory.py
 │   ├── gemini_profiles.py
+│   ├── photographer_eye_tasks.py
 │   └── prompt_adapters.py
 ├── prompts
-│   ├── default
+│   ├── photographer_eye             # 当前运行集
 │   │   ├── stage0_soft_prefilter.md
 │   │   ├── stage1_system_instruction.md
 │   │   └── techniques
-│   └── problem_first_recall
-│       ├── stage0_soft_prefilter.md
-│       ├── stage1_system_instruction.md
-│       └── techniques
+│   ├── default_v1                   # 备用/实验资产
+│   ├── default_v2                   # 备用/实验资产
+│   └── environment_understand       # 备用/实验资产
 └── tests
     └── test_pipeline_guards.py
 ```
@@ -118,12 +122,11 @@ backend
 
 ### 1. Prompt 资产化
 
-提示词不写死在 provider 里，而是放在：
+提示词不写死在 provider 里，而是放在 `prompts/<提示词集>/` 下。当前运行集为：
 
-- `prompts/default/stage1_system_instruction.md`
-- `prompts/default/stage0_soft_prefilter.md`
-- `prompts/default/techniques/*.md`
-- `prompts/problem_first_recall/...`
+- `prompts/photographer_eye/stage1_system_instruction.md`
+- `prompts/photographer_eye/stage0_soft_prefilter.md`
+- `prompts/photographer_eye/techniques/*.md`
 
 这样做的好处是：
 
@@ -131,10 +134,10 @@ backend
 - 更方便记录实验
 - 更适合做论文/答辩里的方法说明
 
-当前运行时通过 `PROMPT_SET` 选择一整套 prompt 资产：
+当前运行时通过 `config.py` 中硬编码的 `PROMPT_SET` 选择一整套 prompt 资产：
 
 ```python
-PROMPT_SET = "default"
+PROMPT_SET = "photographer_eye"
 ```
 
 三类 prompt 路径会由 `PROMPT_SET` 自动派生：
@@ -145,11 +148,9 @@ STAGE0_SOFT_PREFILTER_PROMPT_PATH = f"{PROMPT_SET}/stage0_soft_prefilter.md"
 TECHNIQUE_PROMPT_DIR = f"{PROMPT_SET}/techniques"
 ```
 
-如果要试验另一套 prompt 组合，可以通过环境变量切换：
+如需试验另一套 prompt 组合，直接修改 `config.py` 中的 `PROMPT_SET`；不支持通过环境变量覆盖。
 
-```bash
-export PROMPT_SET=problem_first_recall
-```
+摄影眼模式下，固定 technique 提示词仅为路径与协议兼容资产。实际 Stage 1 使用的是 Stage 0 根据画面生成的运行时拍摄方向任务。
 
 ### 2. 流式 prompt 前置
 
@@ -212,28 +213,12 @@ pip install -r requirements.txt
 
 ## 最小可运行配置
 
-### 方案一：默认 Qwen 配置
+### 方案一：默认 Gemini 配置
 
-当前 `config.py` 默认使用 Qwen provider，最少需要：
-
-```bash
-export DASHSCOPE_API_KEY=your_dashscope_key
-```
-
-### 方案二：官方 Gemini
-
-先在 `config.py` 中切换 provider，例如：
-
-```python
-STAGE0_PROVIDER = "gemini"
-STAGE1_PROVIDER = "gemini"
-STAGE2_PROVIDER = "gemini"
-```
-
-然后注入 key：
+当前 `config.py` 默认使用 Gemini provider，最少需要：
 
 ```bash
-export GEMINI_API_KEY=your_key
+export GEMINI_API_KEY=your_gemini_key
 ```
 
 如果使用官方 Gemini，当前代理相关配置为：
@@ -242,6 +227,22 @@ export GEMINI_API_KEY=your_key
 - `GEMINI_PROXY_URL = "http://127.0.0.1:11087"`
 
 如果不需要代理，请在 `config.py` 中把 `USE_GEMINI_PROXY` 改为 `False`。
+
+### 方案二：Qwen
+
+先在 `config.py` 中切换 provider，例如：
+
+```python
+STAGE0_PROVIDER = "qwen"
+STAGE1_PROVIDER = "qwen"
+STAGE2_PROVIDER = "qwen"
+```
+
+然后注入 key：
+
+```bash
+export DASHSCOPE_API_KEY=your_dashscope_key
+```
 
 ### 方案三：国内 Gemini 兼容中转
 
@@ -286,7 +287,7 @@ export GEMINI_API_KEY=your_gemini_key
 常用配置集中在 `config.py`：
 
 - Provider：`STAGE0_PROVIDER`、`STAGE1_PROVIDER`、`STAGE2_PROVIDER`
-- Prompt set：`PROMPT_SET`
+- Prompt set：`PROMPT_SET`（直接修改 `config.py`，不使用环境变量）
 - 模型：`QWEN_STAGE*_MODEL`、`GEMINI_STAGE*_MODEL`
 - Stage 0：`ENABLE_STAGE0`、`STAGE0_MAX_TECHNIQUES`、`STAGE0_TEMPERATURE`、`STAGE0_TOP_P`
 - 吞吐与超时：`STAGE1_MAX_CONCURRENCY`、`STAGE1_TIMEOUT_SECONDS`、`STAGE2_TIMEOUT_SECONDS`
@@ -294,10 +295,9 @@ export GEMINI_API_KEY=your_gemini_key
 - Gemini 代理 / 中转：`USE_GEMINI_PROXY`、`GEMINI_PROXY_URL`、`USE_GEMINI_DOMESTIC_API`
 - Qwen 图像侧限速：`IMAGE_MAX_RATE`
 
-环境变量可用于切换 prompt set 或注入敏感 key：
+环境变量仅用于注入敏感 key：
 
 ```bash
-export PROMPT_SET=problem_first_recall
 export GEMINI_API_KEY=your_gemini_key
 export GEMINI_DOMESTIC_API_KEY=your_domestic_key
 export DASHSCOPE_API_KEY=your_dashscope_key
@@ -458,21 +458,15 @@ pytest tests/test_pipeline_guards.py
 
 因为 `USE_GEMINI_PROXY` 当前默认值是 `True`。如果你不需要代理，请在 `config.py` 中把它改为 `False`。
 
-### 3. 为什么说是三阶段，但 Stage 0 好像没运行
+### 3. 摄影眼模式下为什么必须保留 Stage 0
 
-因为 `config.py` 里当前默认：
+当前默认：
 
 ```python
-ENABLE_STAGE0 = False
+ENABLE_STAGE0 = True
 ```
 
-后端代码已经包含：
-
-- Stage 0 软预筛
-- Stage 1 构图分析
-- Stage 2 参考图生成
-
-但只有把 `ENABLE_STAGE0` 改为 `True` 后，Stage 0 才会真正参与运行。
+摄影眼模式中，Stage 0 不只是预筛，还会根据画面生成拍摄方向并创建运行时 Stage 1 任务。若关闭它，后端不会回退到固定构图 technique，因此不会产生候选方案。
 
 ### 4. 为什么前端默认地址和本地端口对不上
 

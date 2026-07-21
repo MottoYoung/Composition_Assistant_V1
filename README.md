@@ -5,7 +5,7 @@ Assistant_v1 是一个面向“辅助拍摄 / 构图引导”的实验项目：�
 项目内部的应用名仍以 PhotoFramer 为主，当前仓库最重要的两条主线是：
 
 - `android_frontend`：Android 前端，负责相机预览、拍照、候选展示、实时引导与最终拍摄
-- `backend`：三阶段后端主干，负责构图技术筛选、构图分析与参考图生成
+- `backend`：三阶段后端主干，负责拍摄方向/构图候选筛选、构图分析与参考图生成
 
 ## 仓库里有什么
 
@@ -21,12 +21,12 @@ Composition_Assistant_V1
 
 ## 核心能力
 
-- AI 构图分析：对当前照片评估哪些构图 technique 适用
-- 多候选方案输出：针对不同 technique 返回步骤化建议与参考图
+- AI 构图分析：当前默认的摄影眼模式会先发现可拍摄方向，再生成候选方案；保留固定构图 technique 模式兼容
+- 多候选方案输出：每个候选返回步骤化建议与参考图
 - 流式结果返回：后端支持 SSE，将候选逐个推送给前端
 - 实时本地验证：前端结合 OpenCV、ML Kit、ARCore/姿态信息做闭环引导
 - 画面内构图：支持基于裁切推荐的“画面内重构图”模式
-- Provider 组合：后端 Stage 0 / Stage 1 / Stage 2 可在 Qwen 与 Gemini 之间组合切换
+- Provider 组合：Stage 0 / Stage 1 可在 Qwen 与 Gemini 之间切换，Stage 2 还支持 OpenRouter
 
 ## 系统结构
 
@@ -34,7 +34,7 @@ Composition_Assistant_V1
 flowchart LR
     A["Android CameraX 取景"] --> B["拍照并预处理"]
     B --> C["后端 composition_analyze / composition_analyze_stream"]
-    C --> D["Stage 0 软预筛（可选）"]
+    C --> D["Stage 0 软预筛 / 摄影眼方向选择"]
     D --> E["Stage 1 构图分析"]
     E --> F["Stage 2 参考图生成"]
     F --> G["候选 compositions 返回前端"]
@@ -81,13 +81,13 @@ flowchart LR
 cd backend
 pip install -r requirements.txt
 
-# 当前默认配置偏向 Qwen provider
-export DASHSCOPE_API_KEY=your_dashscope_key
+# 当前默认配置使用官方 Gemini
+export GEMINI_API_KEY=your_gemini_key
 
 uvicorn main:app --host 0.0.0.0 --port 8100 --reload
 ```
 
-如果要切换到 Gemini 或混合 provider，请修改 `backend/config.py` 中的：
+如果要切换到 Qwen、OpenRouter 或混合 provider，请修改 `backend/config.py` 中的：
 
 - `STAGE0_PROVIDER`
 - `STAGE1_PROVIDER`
@@ -149,7 +149,7 @@ const val AI_COMPOSITION_URL = "http://192.168.1.20:8100/"
 ## 关键事实和注意事项
 
 - 后端主干现在位于 `backend/`
-- 后端实际运行架构是 Stage 0 / Stage 1 / Stage 2 三阶段流水线，其中 Stage 0 当前可通过配置关闭
+- 后端实际运行架构是 Stage 0 / Stage 1 / Stage 2 三阶段流水线；当前摄影眼模式默认开启 Stage 0，以生成运行时拍摄方向任务
 - Android 前端默认优先走流式接口，流式失败后再回退普通接口
 - 画面内构图服务当前是外部 URL，不在本仓库内
 - 后端 API key 从环境变量读取；provider、模型、代理、超时等运行配置主要在 `backend/config.py`

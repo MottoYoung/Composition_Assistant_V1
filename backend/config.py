@@ -3,7 +3,7 @@
 
 目标：
 1. Stage 0（软预筛）、Stage 1（分析）与 Stage 2（生图）可独立切换 provider / model
-2. 默认使用 Gemini 负责分析，OpenRouter 负责 Stage 2 生图
+2. 当前默认使用 Gemini 负责 Stage 0 / Stage 1 分析和 Stage 2 生图
 3. 同时支持 Gemini、Qwen、OpenRouter 作为可组合 provider 接入
 """
 
@@ -97,8 +97,8 @@ def get_stage2_model_name() -> str:
 BASE_DIR = Path(__file__).resolve().parent
 TEMP_DIR = BASE_DIR / "temp"
 PROMPTS_DIR = BASE_DIR / "prompts"
-#PROMPT_SET = "default"
-#PROMPT_SET = "self_written"
+# 提示词集通过直接修改此常量切换，不使用环境变量覆盖。
+# 当前可用目录：photographer_eye、default_v1、default_v2、environment_understand。
 PROMPT_SET = "photographer_eye"
 PHOTOGRAPHER_EYE_DIRECTION_MODE = PROMPT_SET == "photographer_eye"
 

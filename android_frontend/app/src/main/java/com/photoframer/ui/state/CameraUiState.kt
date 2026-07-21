@@ -17,7 +17,7 @@ sealed class CameraUiState {
     object Analyzing : CameraUiState()
     
     /**
-     * 阶段 3：候选方案选择 (v3.1 并行化后端格式)
+     * 阶段 3：候选方案选择（支持流式逐个到达）
      */
     data class Candidates(
         val totalTechniques: Int,      // 请求的构图技术总数

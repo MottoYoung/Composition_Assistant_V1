@@ -33,7 +33,7 @@ from services.gemini_client_factory import (
 from services.stage2_openrouter_provider import probe_openrouter_proxy_connectivity
 
 app = FastAPI(
-    title="PhotoFramer API - Two-Stage New",
+    title="PhotoFramer API - Three-Stage",
     description="""
 支持可插拔的三阶段组合：
 
@@ -41,11 +41,8 @@ app = FastAPI(
 - Stage 1（构图分析）: `qwen` / `gemini`
 - Stage 2（参考图生成）: `qwen` / `gemini` / `openrouter`
 
-Provider 默认在 `config.py` 中修改；prompt set 可通过 `PROMPT_SET` 环境变量切换：
-
-```bash
-PROMPT_SET=self_written uvicorn main:app --reload --port 8100
-```
+Provider 与提示词集均在 `config.py` 中直接修改。当前提示词集是
+`photographer_eye`；不通过环境变量切换，以保持运行配置明确、可复现。
 """,
     version="2.0.0",
     docs_url="/docs",
@@ -67,7 +64,7 @@ app.include_router(image_router)
 @app.get("/", tags=["Root"])
 async def root():
     return {
-        "service": "PhotoFramer API - Two-Stage New",
+        "service": "PhotoFramer API - Three-Stage",
         "version": "2.0.0",
         "prompt_set": PROMPT_SET,
         "prompts": {

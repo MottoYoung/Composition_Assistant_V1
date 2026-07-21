@@ -56,7 +56,7 @@ class CompositionRepository {
     )
     
     /**
-     * 分析图片构图 (v3.1 并行化后端)
+     * 分析图片构图（普通非流式接口）
      * 
      * @param imageFile 图片文件
      * @return 分析结果

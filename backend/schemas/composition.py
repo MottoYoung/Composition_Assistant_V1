@@ -7,8 +7,11 @@ from pydantic import BaseModel, Field, AliasChoices
 class CompositionStep(BaseModel):
     """单步操作指令"""
     step_order: int = Field(..., description="步骤序号")
-    action_type: str = Field(..., description="操作类型，如 Shift, Zoom, View-change")
-    direction: str = Field(..., description="操作方向，如 Left, Right, In, Out, High-angle 等")
+    action_type: str = Field(
+        ...,
+        description="操作类型：Shift、Level、Zoom、Orbit、RaiseCamera、LowerCamera 或 Step；View-change 仅为旧客户端兼容值",
+    )
+    direction: str = Field(..., description="动作方向，如 Left、Right、Up、Down、In、Out、CW、CCW、Forward、Backward")
     guide_text: str = Field(..., description="中文指导文本")
 
 

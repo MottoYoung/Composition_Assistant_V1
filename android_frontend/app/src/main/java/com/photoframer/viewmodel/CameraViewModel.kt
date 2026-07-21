@@ -118,7 +118,7 @@ class CameraViewModel : ViewModel() {
     private var activeValidation: ActiveValidation? = null
     
     /**
-     * 分析图片构图 (v3.1 并行化后端)
+     * 分析图片构图（优先使用 SSE 流式接口）
      */
     fun analyzeImage(imageFile: File) {
         _postCapturePrompt.value = null
