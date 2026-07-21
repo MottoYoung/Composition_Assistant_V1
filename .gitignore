@@ -41,7 +41,6 @@ build/
 # Gradle 缓存
 .gradle/
 */.gradle/
-gradlew.bat
 
 # Android Studio 配置
 .idea/
@@ -103,4 +102,3 @@ docs/
 # 测试数据（敏感） 文档
 test_data/
 docs/
-
