@@ -107,13 +107,13 @@ backend
 │   ├── photographer_eye_tasks.py
 │   └── prompt_adapters.py
 ├── prompts
-│   ├── photographer_eye             # 当前运行集
+│   ├── photographer_eye             # 当前运行集，创意能力较强，但是不好引导成功
 │   │   ├── stage0_soft_prefilter.md
 │   │   ├── stage1_system_instruction.md
 │   │   └── techniques
-│   ├── default_v1                   # 备用/实验资产
-│   ├── default_v2                   # 备用/实验资产
-│   └── environment_understand       # 备用/实验资产
+│   ├── default_v1                   # 备用/创意性一般，相对原图的改善较少，引导成功率高一些
+│   ├── default_v2                   # 备用/比v1创意性好一些
+│   └── environment_understand       # 备用/引入思维链，让模型脑补周围环境之后再去进行构图
 └── tests
     └── test_pipeline_guards.py
 ```
@@ -169,6 +169,7 @@ TECHNIQUE_PROMPT_DIR = f"{PROMPT_SET}/techniques"
 - Qwen 文本阶段用 OpenAI-compatible client
 - Qwen 图像阶段用 DashScope
 - Gemini 用 `google-genai`
+- OpenRouter 仅用于 Stage 2，通过 Images API 生成参考图
 
 路由层不直接关心这些差异，只通过 `get_stage0_service()`、`get_stage1_service()`、`get_stage2_service()` 取服务实例。
 
@@ -218,18 +219,17 @@ pip install -r requirements.txt
 当前 `config.py` 默认使用 Gemini provider，最少需要：
 
 ```bash
-export GEMINI_API_KEY=your_gemini_key
+export GEMINI_API_KEY=your_gemini_key （服务器上有）
 ```
 
-如果使用官方 Gemini，当前代理相关配置为：
+如果使用官方 Gemini，服务器上的代理相关配置为：
 
 - `USE_GEMINI_PROXY = True`
 - `GEMINI_PROXY_URL = "http://127.0.0.1:11087"`
 
 如果不需要代理，请在 `config.py` 中把 `USE_GEMINI_PROXY` 改为 `False`。
 
-### 方案二：Qwen
-
+### 方案二：Qwen （API额度已耗尽）
 先在 `config.py` 中切换 provider，例如：
 
 ```python
@@ -241,7 +241,7 @@ STAGE2_PROVIDER = "qwen"
 然后注入 key：
 
 ```bash
-export DASHSCOPE_API_KEY=your_dashscope_key
+export DASHSCOPE_API_KEY=your_dashscope_key （服务器上有，但是额度不足）
 ```
 
 ### 方案三：国内 Gemini 兼容中转
@@ -265,7 +265,34 @@ export GEMINI_DOMESTIC_API_KEY=your_key
 - `GEMINI_DOMESTIC_BASE_URL` 填服务根地址或 API 根地址
 - 不要填到某个完整 `generateContent` 路径
 
-### 方案四：混合 Provider
+### 方案四：Gemini 分析 + OpenRouter 生图
+
+OpenRouter 当前只支持 Stage 2。保留 Gemini 负责 Stage 0 / Stage 1，将 Stage 2 切换为 OpenRouter：
+
+```python
+STAGE0_PROVIDER = "gemini"
+STAGE1_PROVIDER = "gemini"
+STAGE2_PROVIDER = "openrouter"
+```
+
+然后注入两个服务所需的 key：
+
+```bash
+export GEMINI_API_KEY=your_gemini_key
+export OPENROUTER_API_KEY=your_openrouter_key （服务器上有）
+```
+
+当前 OpenRouter Stage 2 默认模型是：
+
+```python
+OPENROUTER_STAGE2_MODEL = "google/gemini-3.1-flash-lite-image"
+```
+
+网络配置默认复用 `GEMINI_PROXY_URL`。若 OpenRouter 不需要代理，将 `USE_OPENROUTER_PROXY` 改为 `False`；若需单独指定代理，可通过 `OPENROUTER_PROXY_URL` 环境变量覆盖。服务启动时会输出 OpenRouter 代理连通性自检结果。
+
+注意：当前模型实现固定单张、非流式 1K 生成；可通过 `OPENROUTER_STAGE2_RESOLUTION` 和 `OPENROUTER_STAGE2_ASPECT_RATIO` 调整请求参数，但应以所选模型实际支持的能力为准。
+
+### 方案五：其他混合 Provider
 
 先在 `config.py` 中切换 provider，例如：
 
@@ -293,6 +320,7 @@ export GEMINI_API_KEY=your_gemini_key
 - 吞吐与超时：`STAGE1_MAX_CONCURRENCY`、`STAGE1_TIMEOUT_SECONDS`、`STAGE2_TIMEOUT_SECONDS`
 - 采样参数：`MODEL_TEMPERATURE`、`MODEL_TOP_P`、`MODEL_TOP_K`、`MODEL_MAX_TOKENS`
 - Gemini 代理 / 中转：`USE_GEMINI_PROXY`、`GEMINI_PROXY_URL`、`USE_GEMINI_DOMESTIC_API`
+- OpenRouter Stage 2：`OPENROUTER_STAGE2_MODEL`、`USE_OPENROUTER_PROXY`、`OPENROUTER_PROXY_URL`
 - Qwen 图像侧限速：`IMAGE_MAX_RATE`
 
 环境变量仅用于注入敏感 key：
@@ -301,6 +329,7 @@ export GEMINI_API_KEY=your_gemini_key
 export GEMINI_API_KEY=your_gemini_key
 export GEMINI_DOMESTIC_API_KEY=your_domestic_key
 export DASHSCOPE_API_KEY=your_dashscope_key
+export OPENROUTER_API_KEY=your_openrouter_key
 ```
 
 ## 运行

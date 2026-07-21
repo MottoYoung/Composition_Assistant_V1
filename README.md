@@ -7,6 +7,19 @@ Assistant_v1 是一个面向“辅助拍摄 / 构图引导”的实验项目：�
 - `android_frontend`：Android 前端，负责相机预览、拍照、候选展示、实时引导与最终拍摄
 - `backend`：三阶段后端主干，负责拍摄方向/构图候选筛选、构图分析与参考图生成
 
+## 分支定位（重要）
+
+本仓库当前有两条边界不同的 Android 技术路线：
+
+| 分支 | 定位 | 已实现 | 尚未证明 |
+| --- | --- | --- | --- |
+| `main` | 基于视觉的主线 | CameraX 预览/拍照，以及 OpenCV 特征匹配、单应分析等视觉闭环引导 | ARCore 没有真正接入正式相机管线，不能把 main 描述为基于 AR 位姿的引导系统 |
+| `codex/feat-camera2-arcore-shared-pipeline` | 实验性 AR 分支 | 将正式相机管线重构为 Camera2 + ARCore SharedCamera，在同一相机会话中完成预览、分析帧、拍照，并持续读取屏幕坐标系下的 6DoF 位姿 | 只验证了管线可运行和位姿可读取，未探索目标位姿如何获得，尚未用独立真值充分验证 ARCore 的平移尺度、旋转误差、漂移和失效恢复 |
+
+因此，`main` 仍代表当前基于视觉的应用基线；AR 分支提供的是后续“基于目标位姿计算残差并引导用户移动”所需的基础工具，不代表位姿引导已经达到可用精度。
+
+ARCore 准确性验证由独立仓库 `ARCore_Validation_App` 承担。该工具通过 `ArCoreValidationActivity` 提供受控动作流程、实时状态提示和逐帧 CSV 日志，用来单独检查方向、尺度、漂移、跳变和前后台恢复。现有日志只能说明部分方向与内部连续性；在加入标定板、动捕等独立参照并完成正式实验前，不应宣称 ARCore 位姿准确可靠。
+
 ## 仓库里有什么
 
 ```text
@@ -14,8 +27,7 @@ Composition_Assistant_V1
 ├── android_frontend       # Android 客户端
 ├── backend                # 三阶段后端主干
 ├── API_access_tests       # 接口侧实验/验证脚本
-├── Gemini_prompt_tests    # Prompt 试验记录
-├── docs                   # 仓库内文档
+├── Gemini_prompt_tests    # 早起Prompt 试验记录，不确定可用性
 └── test_images            # 测试图片
 ```
 
@@ -24,7 +36,7 @@ Composition_Assistant_V1
 - AI 构图分析：当前默认的摄影眼模式会先发现可拍摄方向，再生成候选方案；保留固定构图 technique 模式兼容
 - 多候选方案输出：每个候选返回步骤化建议与参考图
 - 流式结果返回：后端支持 SSE，将候选逐个推送给前端
-- 实时本地验证：前端结合 OpenCV、ML Kit、ARCore/姿态信息做闭环引导
+- 实时本地验证：main 前端以 OpenCV、ML Kit 和图像几何分析做闭环引导
 - 画面内构图：支持基于裁切推荐的“画面内重构图”模式
 - Provider 组合：Stage 0 / Stage 1 可在 Qwen 与 Gemini 之间切换，Stage 2 还支持 OpenRouter
 
@@ -53,12 +65,12 @@ flowchart LR
 ### Android 端
 
 - Kotlin + Jetpack Compose
-- CameraX
+- CameraX（`main`）；Camera2 + ARCore SharedCamera（实验性 AR 分支）
 - Lifecycle + ViewModel + StateFlow
 - Retrofit + OkHttp
 - OpenCV
 - ML Kit Object Detection
-- ARCore（可选增强链）
+- ARCore（仅实验性 AR 分支完成正式相机管线接入，准确性尚未验证）
 
 ### 后端
 
@@ -74,18 +86,6 @@ flowchart LR
 ### 1. 启动后端
 
 详细说明见 [backend/README.md](./backend/README.md)。
-
-最小步骤：
-
-```bash
-cd backend
-pip install -r requirements.txt
-
-# 当前默认配置使用官方 Gemini
-export GEMINI_API_KEY=your_gemini_key
-
-uvicorn main:app --host 0.0.0.0 --port 8100 --reload
-```
 
 如果要切换到 Qwen、OpenRouter 或混合 provider，请修改 `backend/config.py` 中的：
 
@@ -133,6 +133,27 @@ const val AI_COMPOSITION_URL = "http://192.168.1.20:8100/"
 -> 连接真机或启动模拟器
 -> Run
 ```
+## 服务器以及网络配置
+项目的两个构图后端都在服务器 mty@10.112.242.164的用户文件夹下。
+
+### 画面内构图后端
+运行方式见 /home/mty/RethinkingImageCropping_resnet50_APIVERSION/crop_backend/README.md
+
+### ai构图后端
+ai构图后端为该项目后端的复制，运行方式见
+/home/mty/RethinkingImageCropping_resnet50_APIVERSION/crop_backend/README.md
+
+### 代理配置
+xray代理在服务器 端口为11087，使用gemini、openrouter 模型需要开启xray代理
+/home/mty/xray/start.md
+
+### 内网穿透配置
+内网穿透使用 cloudeflare tunnel
+- 启动脚本：/home/mty/start_cf_tunnel.sh
+- 终止脚本：/home/mty/stop_cf_tunnel.sh
+- log: /home/mty/tunnel2.log
+- log: /home/mty/tunnel1.log
+
 
 ## 推荐阅读顺序
 
@@ -151,6 +172,8 @@ const val AI_COMPOSITION_URL = "http://192.168.1.20:8100/"
 - 后端主干现在位于 `backend/`
 - 后端实际运行架构是 Stage 0 / Stage 1 / Stage 2 三阶段流水线；当前摄影眼模式默认开启 Stage 0，以生成运行时拍摄方向任务
 - Android 前端默认优先走流式接口，流式失败后再回退普通接口
+- `main` 的有效实时引导仍以视觉匹配和图像几何分析为基础；其中出现 ARCore 依赖或实验代码，不等于 AR 已真正接入正式相机管线
+- `codex/feat-camera2-arcore-shared-pipeline` 仅作为本地实验分支保留，当前不代表 main，也尚未推送或创建 PR
 - 画面内构图服务当前是外部 URL，不在本仓库内
 - 后端 API key 从环境变量读取；provider、模型、代理、超时等运行配置主要在 `backend/config.py`
 - Android 端当前声明了 Coil 依赖，但主干实现的核心图片显示并不依赖它
@@ -159,16 +182,4 @@ const val AI_COMPOSITION_URL = "http://192.168.1.20:8100/"
 
 - Android 端详细说明：[android_frontend/README.md](./android_frontend/README.md)
 - 后端详细说明：[backend/README.md](./backend/README.md)
-- Prompt 实验说明：[Gemini_prompt_tests/README.md](./Gemini_prompt_tests/README.md)
-
-## 当前适合谁看
-
-这个仓库的 README 主要是写给三类人：
-
-- 要快速把项目跑起来的人
-- 要继续开发 Android 前端或后端的人
-- 要基于这套代码写论文、做答辩、整理架构说明的人
-
-如果你的目标是快速定位主逻辑，先抓住一句话：
-
-> 后端负责产出候选构图目标，前端负责实时验证并引导用户把当前取景调整到这个目标。
+- ~~Prompt 实验说明（早期实验）：[Gemini_prompt_tests/README.md](./Gemini_prompt_tests/README.md)~~
