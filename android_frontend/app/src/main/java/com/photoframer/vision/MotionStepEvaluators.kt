@@ -217,7 +217,6 @@ internal class ShiftStepEvaluator(
         components: HomographyComponents,
         direction: String,
         matchQuality: Float,
-        usingFallbackComponents: Boolean = false,
         uiSpaceWidth: Float,
         uiSpaceHeight: Float
     ): StepValidationResult {

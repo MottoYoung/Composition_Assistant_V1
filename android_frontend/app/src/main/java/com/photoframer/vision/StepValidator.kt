@@ -113,7 +113,6 @@ class StepValidator(
             val currentTime = System.currentTimeMillis()
             var components: HomographyComponents? = null
             var matchQuality = 0f
-            var usingFallbackComponents = false
 
             if (result.homography != null && result.matchCount >= MIN_MATCH_QUALITY) {
                 // 分解单应性矩阵
@@ -131,13 +130,11 @@ class StepValidator(
                 }
                 if (pHashSimilarity > 0.75f && lastValidComponents != null) {
                     components = lastValidComponents
-                    usingFallbackComponents = true
                     matchQuality = (pHashSimilarity * 0.5f).coerceIn(0f, 1f)
                     Log.d(TAG, "ORB 匹配不足，使用 pHash 兜底缓存")
                 } else if (currentTime - lastValidTime < PERSISTENCE_DURATION && lastValidComponents != null) {
                     // 使用缓存数据，但稍微降低匹配质量
                     components = lastValidComponents
-                    usingFallbackComponents = true
                     matchQuality = maxOf(matchQuality, pHashSimilarity * 0.35f, 0.24f)
                     Log.d(TAG, "处于保持期，使用缓存数据")
                 } else {
@@ -185,7 +182,6 @@ class StepValidator(
                             components = components,
                             direction = direction,
                             matchQuality = matchQuality,
-                            usingFallbackComponents = usingFallbackComponents,
                             uiSpaceWidth = uiSpaceWidth(),
                             uiSpaceHeight = uiSpaceHeight()
                         )
@@ -225,7 +221,6 @@ class StepValidator(
                             components = components,
                             direction = direction,
                             matchQuality = matchQuality,
-                            usingFallbackComponents = usingFallbackComponents,
                             uiSpaceWidth = uiSpaceWidth(),
                             uiSpaceHeight = uiSpaceHeight()
                         )
