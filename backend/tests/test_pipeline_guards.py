@@ -367,11 +367,10 @@ class CompositionPipelineGuardTests(unittest.IsolatedAsyncioTestCase):
 
     def test_prompt_sets_have_required_assets(self):
         for prompt_set in (
-            "default",
-            "self_written",
             "photographer_eye",
-            "problem_first_recall",
-            "v2",
+            "default_v1",
+            "default_v2",
+            "environment_understand",
         ):
             prompt_dir = BACKEND_DIR / "prompts" / prompt_set
             required_files = [
