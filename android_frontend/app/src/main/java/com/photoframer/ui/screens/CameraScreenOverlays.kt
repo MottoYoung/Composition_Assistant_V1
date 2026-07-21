@@ -80,7 +80,6 @@ internal fun ErrorOverlay(
         }
     }
 }
-
 @Composable
 internal fun StepSkipOverlay(
     onSkip: () -> Unit,
@@ -288,4 +287,3 @@ internal fun AspectRatioMaskOverlay(
         }
     }
 }
-
