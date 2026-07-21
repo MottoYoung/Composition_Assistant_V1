@@ -1,4 +1,5 @@
-# User Request
-Apply Center Composition / Symmetry（中心构图 / 对称构图） with a photographer-eye mindset.
+# 摄影眼模式路径兼容说明
 
-Look for a real dominant subject, face, doorway, window, corridor, architectural axis, circular form, still-life object, animal face, plant bloom, reflection, or stable pattern that becomes stronger when centered. Do not force centering when the subject lacks visual authority or symmetry.
+当 `PROMPT_SET = "photographer_eye"` 时，主流程不调用固定构图技巧提示词。
+
+本文件仅用于兼容统一的 `TECHNIQUE_CONFIGS` 路径加载，保证后端启动时能够完成配置初始化。实际 Stage 0 会根据画面生成摄影眼拍摄方向，Stage 1 使用对应的运行时方向任务提示词。
