@@ -74,7 +74,9 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChanged
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -139,6 +141,7 @@ fun CameraScreen(
     viewModel: CameraViewModel = viewModel()
 ) {
     val context = LocalContext.current
+    val density = LocalDensity.current
     val view = LocalView.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val scope = rememberCoroutineScope()
@@ -154,6 +157,7 @@ fun CameraScreen(
     var cameraControl by remember { mutableStateOf<CameraControl?>(null) }
     var previewView by remember { mutableStateOf<PreviewView?>(null) }
     var rawZoomRatio by remember { mutableFloatStateOf(1f) }
+    var normalTopChromeHeight by remember { mutableStateOf(0.dp) }
     val cameraExecutor = remember { Executors.newSingleThreadExecutor() }
     val arCorePoseTracker = remember(context.applicationContext) {
         ArCorePoseTracker(context.applicationContext)
@@ -500,27 +504,15 @@ fun CameraScreen(
         }
     }
 
+    val guidingState = uiState as? CameraUiState.Guiding
+
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(Color.Black)
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
-            val guidingState = uiState as? CameraUiState.Guiding
-            if (guidingState != null && !allStepsCompleted) {
-                guidingState.currentStep?.let { step ->
-                    TopGuidanceBar(
-                        step = step,
-                        currentStepIndex = guidingState.currentStepIndex,
-                        totalSteps = guidingState.totalSteps,
-                        onPreviousStep = { viewModel.previousStep() },
-                        onNextStep = { viewModel.nextStep() },
-                        isFirstStep = guidingState.isFirstStep,
-                        isLastStep = guidingState.isLastStep,
-                        validationResult = validationResult
-                    )
-                }
-            } else if (uiState !is CameraUiState.Guiding) {
+            if (guidingState == null) {
                 CameraTopBar(
                     flashMode = flashMode,
                     onFlashModeChange = { newMode ->
@@ -535,8 +527,15 @@ fun CameraScreen(
                     showInFrameButton = uiState !is CameraUiState.Analyzing,
                     onInFrameClick = startInFrameComposition,
                     showAiButton = uiState !is CameraUiState.Analyzing,
-                    onAiClick = startAiAnalysis
+                    onAiClick = startAiAnalysis,
+                    modifier = Modifier.onSizeChanged { size ->
+                        if (size.height > 0) {
+                            normalTopChromeHeight = with(density) { size.height.toDp() }
+                        }
+                    }
                 )
+            } else {
+                Spacer(modifier = Modifier.height(normalTopChromeHeight))
             }
 
         Box(
@@ -980,6 +979,22 @@ fun CameraScreen(
                         onFacingSwitch = ::switchCameraFacing
                     )
                 }
+            }
+        }
+
+        if (guidingState != null && !allStepsCompleted) {
+            guidingState.currentStep?.let { step ->
+                TopGuidanceBar(
+                    step = step,
+                    currentStepIndex = guidingState.currentStepIndex,
+                    totalSteps = guidingState.totalSteps,
+                    onPreviousStep = { viewModel.previousStep() },
+                    onNextStep = { viewModel.nextStep() },
+                    isFirstStep = guidingState.isFirstStep,
+                    isLastStep = guidingState.isLastStep,
+                    validationResult = validationResult,
+                    modifier = Modifier.align(Alignment.TopCenter)
+                )
             }
         }
     }
