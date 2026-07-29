@@ -17,7 +17,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CenterFocusStrong
-import androidx.compose.material.icons.filled.Crop
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material.icons.filled.TouchApp
 import androidx.compose.material3.DropdownMenu
@@ -43,12 +42,6 @@ import com.photoframer.ui.theme.ControlBackground
 import com.photoframer.ui.theme.ControlSelectedBackground
 import com.photoframer.ui.theme.PillBackground
 
-enum class AspectRatioOption(val label: String) {
-    RATIO_4_3("3:4"),
-    RATIO_1_1("1:1"),
-    FULL("全屏")
-}
-
 enum class CaptureTimer(val seconds: Int, val label: String) {
     OFF(0, "关"),
     S3(3, "3s"),
@@ -58,8 +51,6 @@ enum class CaptureTimer(val seconds: Int, val label: String) {
 
 @Composable
 fun SideToolBar(
-    selectedRatio: AspectRatioOption,
-    onRatioChange: (AspectRatioOption) -> Unit,
     selectedTimer: CaptureTimer,
     onTimerChange: (CaptureTimer) -> Unit,
     touchScreenPhotoEnabled: Boolean,
@@ -69,7 +60,6 @@ fun SideToolBar(
     modifier: Modifier = Modifier,
     contentPadding: PaddingValues = PaddingValues(vertical = 24.dp)
 ) {
-    var ratioMenuExpanded by remember { mutableStateOf(false) }
     var timerMenuExpanded by remember { mutableStateOf(false) }
 
     Column(
@@ -82,64 +72,9 @@ fun SideToolBar(
     ) {
         Box(contentAlignment = Alignment.CenterEnd) {
             SideCircleButton(
-                icon = Icons.Default.Crop,
-                label = selectedRatio.label,
-                onClick = {
-                    ratioMenuExpanded = !ratioMenuExpanded
-                    if (ratioMenuExpanded) {
-                        timerMenuExpanded = false
-                    }
-                }
-            )
-
-            DropdownMenu(
-                expanded = ratioMenuExpanded,
-                onDismissRequest = { ratioMenuExpanded = false },
-                modifier = Modifier
-                    .offset(x = (-6).dp)
-                    .background(PillBackground.copy(alpha = 0.96f), RoundedCornerShape(14.dp))
-            ) {
-                AspectRatioOption.values().forEach { option ->
-                    DropdownMenuItem(
-                        text = {
-                            Row(
-                                modifier = Modifier.width(88.dp),
-                                horizontalArrangement = Arrangement.Center,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(
-                                    text = option.label,
-                                    color = if (option == selectedRatio) AccentYellow else Color.White
-                                )
-                                if (option == selectedRatio) {
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Text(
-                                        text = "当前",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = AccentYellow.copy(alpha = 0.8f)
-                                    )
-                                }
-                            }
-                        },
-                        onClick = {
-                            onRatioChange(option)
-                            ratioMenuExpanded = false
-                        }
-                    )
-                }
-            }
-        }
-
-        Box(contentAlignment = Alignment.CenterEnd) {
-            SideCircleButton(
                 icon = Icons.Default.Timer,
                 label = selectedTimer.label,
-                onClick = {
-                    timerMenuExpanded = !timerMenuExpanded
-                    if (timerMenuExpanded) {
-                        ratioMenuExpanded = false
-                    }
-                }
+                onClick = { timerMenuExpanded = !timerMenuExpanded }
             )
 
             DropdownMenu(

@@ -10,7 +10,6 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import com.photoframer.ui.components.AspectRatioOption
 import com.photoframer.ui.components.CameraEntryMode
 import com.photoframer.ui.components.CameraVisualStyle
 import com.photoframer.ui.components.CaptureTimer
@@ -40,7 +39,6 @@ internal class CameraControlState(
     var zoomInteractionVersion by mutableIntStateOf(0)
 
     var touchScreenPhotoEnabled by mutableStateOf(false)
-    var selectedRatio by mutableStateOf(AspectRatioOption.FULL)
     var selectedTimer by mutableStateOf(CaptureTimer.OFF)
     var countdownValue by mutableStateOf<Int?>(null)
     var burstCount by mutableIntStateOf(0)

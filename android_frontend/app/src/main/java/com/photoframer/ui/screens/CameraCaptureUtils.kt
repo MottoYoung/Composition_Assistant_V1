@@ -5,7 +5,6 @@ import android.graphics.Bitmap
 import android.util.Log
 import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
-import com.photoframer.ui.components.AspectRatioOption
 import com.photoframer.utils.ImageFileDecoder
 import java.io.File
 import java.io.FileOutputStream
@@ -50,10 +49,8 @@ internal fun captureAndAnalyze(
 internal fun applyAspectRatioToCapturedFile(
     context: Context,
     sourceFile: File,
-    ratioOption: AspectRatioOption
+    targetRatio: Float
 ): File {
-    val targetRatio = ratioOption.toTargetAspectRatio() ?: return sourceFile
-
     val bitmap = ImageFileDecoder.decodeBitmapRespectingExif(sourceFile) ?: return sourceFile
     val croppedBitmap = try {
         com.photoframer.vision.ImageConverter.centerCropToAspectRatio(bitmap, targetRatio)
@@ -74,13 +71,5 @@ internal fun applyAspectRatioToCapturedFile(
             bitmap.recycle()
             croppedBitmap.recycle()
         }
-    }
-}
-
-internal fun AspectRatioOption.toTargetAspectRatio(): Float? {
-    return when (this) {
-        AspectRatioOption.RATIO_4_3 -> 4f / 3f
-        AspectRatioOption.RATIO_1_1 -> 1f
-        AspectRatioOption.FULL -> null
     }
 }

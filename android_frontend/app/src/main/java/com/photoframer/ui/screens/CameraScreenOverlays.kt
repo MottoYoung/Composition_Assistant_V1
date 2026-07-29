@@ -1,20 +1,16 @@
 package com.photoframer.ui.screens
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -28,9 +24,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import com.photoframer.ui.components.AspectRatioOption
 import com.photoframer.ui.theme.BackgroundDark
 import com.photoframer.ui.theme.ErrorRed
 import com.photoframer.ui.theme.PurplePrimary
@@ -215,75 +209,6 @@ internal fun NewCandidateOverlay(
             ) {
                 Text("查看", color = Color.White)
             }
-        }
-    }
-}
-
-@Composable
-internal fun AspectRatioMaskOverlay(
-    selectedRatio: AspectRatioOption,
-    modifier: Modifier = Modifier
-) {
-    BoxWithConstraints(modifier = modifier) {
-        val targetRatio = when (selectedRatio) {
-            AspectRatioOption.RATIO_4_3 -> 4f / 3f
-            AspectRatioOption.RATIO_1_1 -> 1f
-            AspectRatioOption.FULL -> maxWidth.value / maxHeight.value
-        }
-        val containerRatio = maxWidth.value / maxHeight.value
-        val maskColor = Color.Black.copy(alpha = 0.36f)
-        val borderColor = Color.White.copy(alpha = 0.45f)
-
-        if (containerRatio > targetRatio) {
-            val visibleWidth: Dp = maxHeight * targetRatio
-            val sideMask = (maxWidth - visibleWidth) / 2f
-
-            Box(
-                modifier = Modifier
-                    .fillMaxHeight()
-                    .width(sideMask)
-                    .background(maskColor)
-                    .align(Alignment.CenterStart)
-            )
-            Box(
-                modifier = Modifier
-                    .fillMaxHeight()
-                    .width(sideMask)
-                    .background(maskColor)
-                    .align(Alignment.CenterEnd)
-            )
-            Box(
-                modifier = Modifier
-                    .width(visibleWidth)
-                    .fillMaxHeight()
-                    .border(1.dp, borderColor)
-                    .align(Alignment.Center)
-            )
-        } else {
-            val visibleHeight: Dp = maxWidth / targetRatio
-            val topMask = (maxHeight - visibleHeight) / 2f
-
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(topMask)
-                    .background(maskColor)
-                    .align(Alignment.TopCenter)
-            )
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(topMask)
-                    .background(maskColor)
-                    .align(Alignment.BottomCenter)
-            )
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(visibleHeight)
-                    .border(1.dp, borderColor)
-                    .align(Alignment.Center)
-            )
         }
     }
 }

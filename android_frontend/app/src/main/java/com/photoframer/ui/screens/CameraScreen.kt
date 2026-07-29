@@ -15,6 +15,8 @@ import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageCapture
 import androidx.camera.core.Preview
+import androidx.camera.core.resolutionselector.AspectRatioStrategy
+import androidx.camera.core.resolutionselector.ResolutionSelector
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.compose.animation.AnimatedContent
@@ -32,6 +34,7 @@ import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -84,7 +87,6 @@ import com.photoframer.arcore.ArCoreSupport
 import com.photoframer.guidance.isLevelAction
 import com.photoframer.guidance.isViewpointAction
 import com.photoframer.ui.components.AllStepsCompletedBanner
-import com.photoframer.ui.components.AspectRatioOption
 import com.photoframer.ui.components.CameraBottomBar
 import com.photoframer.ui.components.CameraEntryMode
 import com.photoframer.ui.components.CameraMode
@@ -125,6 +127,12 @@ import kotlinx.coroutines.withContext
 
 private const val TAG = "CameraScreen"
 private const val ZOOM_RULER_AUTO_HIDE_DELAY_MS = 1500L
+/** Portrait width / height after CameraX frame rotation and JPEG EXIF normalization. */
+private const val FIXED_VIEWPORT_ASPECT_RATIO = 3f / 4f
+/** Camera sensors expose the same portrait frame as a 4:3 unrotated stream. */
+private val fixedSensorResolutionSelector = ResolutionSelector.Builder()
+    .setAspectRatioStrategy(AspectRatioStrategy.RATIO_4_3_FALLBACK_AUTO_STRATEGY)
+    .build()
 
 @Composable
 fun CameraScreen(
@@ -162,7 +170,6 @@ fun CameraScreen(
     var isZoomRulerVisible by controls::isZoomRulerVisible
     var zoomInteractionVersion by controls::zoomInteractionVersion
     var touchScreenPhotoEnabled by controls::touchScreenPhotoEnabled
-    var selectedRatio by controls::selectedRatio
     var selectedTimer by controls::selectedTimer
     var countdownValue by controls::countdownValue
     var burstCount by controls::burstCount
@@ -395,7 +402,7 @@ fun CameraScreen(
     fun saveCapturedPhoto(file: File, namePrefix: String) {
         scope.launch {
             val adjustedFile = withContext(Dispatchers.IO) {
-                applyAspectRatioToCapturedFile(context, file, selectedRatio)
+                applyAspectRatioToCapturedFile(context, file, FIXED_VIEWPORT_ASPECT_RATIO)
             }
             val thumbnail = withContext(Dispatchers.IO) {
                 ImageFileDecoder.decodeThumbnailRespectingExif(adjustedFile, maxDimension = 512)
@@ -471,7 +478,11 @@ fun CameraScreen(
         activeEntryMode = CameraEntryMode.IN_FRAME
         countdownValue = null
         captureAndAnalyze(context, imageCapture, cameraExecutor) { file ->
-            val adjustedFile = applyAspectRatioToCapturedFile(context, file, selectedRatio)
+            val adjustedFile = applyAspectRatioToCapturedFile(
+                context,
+                file,
+                FIXED_VIEWPORT_ASPECT_RATIO
+            )
             viewModel.analyzeInFrameComposition(adjustedFile)
         }
     }
@@ -480,7 +491,11 @@ fun CameraScreen(
         activeEntryMode = CameraEntryMode.AI
         countdownValue = null
         captureAndAnalyze(context, imageCapture, cameraExecutor) { file ->
-            val adjustedFile = applyAspectRatioToCapturedFile(context, file, selectedRatio)
+            val adjustedFile = applyAspectRatioToCapturedFile(
+                context,
+                file,
+                FIXED_VIEWPORT_ASPECT_RATIO
+            )
             viewModel.analyzeImage(adjustedFile)
         }
     }
@@ -490,7 +505,21 @@ fun CameraScreen(
             .fillMaxSize()
             .background(Color.Black)
     ) {
-        if (uiState !is CameraUiState.Guiding) {
+        val guidingState = uiState as? CameraUiState.Guiding
+        if (guidingState != null && !allStepsCompleted) {
+            guidingState.currentStep?.let { step ->
+                TopGuidanceBar(
+                    step = step,
+                    currentStepIndex = guidingState.currentStepIndex,
+                    totalSteps = guidingState.totalSteps,
+                    onPreviousStep = { viewModel.previousStep() },
+                    onNextStep = { viewModel.nextStep() },
+                    isFirstStep = guidingState.isFirstStep,
+                    isLastStep = guidingState.isLastStep,
+                    validationResult = validationResult
+                )
+            }
+        } else if (uiState !is CameraUiState.Guiding) {
             CameraTopBar(
                 flashMode = flashMode,
                 onFlashModeChange = { newMode ->
@@ -511,8 +540,8 @@ fun CameraScreen(
 
         Box(
             modifier = Modifier
-                .weight(1f)
                 .fillMaxWidth()
+                .aspectRatio(FIXED_VIEWPORT_ASPECT_RATIO)
                 .clipToBounds()
                 .pointerInput(zoomInteractionRange, uiState) {
                     awaitEachGesture {
@@ -568,15 +597,20 @@ fun CameraScreen(
                             val cameraProviderFuture = ProcessCameraProvider.getInstance(ctx)
                             cameraProviderFuture.addListener({
                                 val cameraProvider = cameraProviderFuture.get()
-                                val preview = Preview.Builder().build().also {
+                                val preview = Preview.Builder()
+                                    .setResolutionSelector(fixedSensorResolutionSelector)
+                                    .build()
+                                    .also {
                                     it.surfaceProvider = surfaceProvider
                                 }
                                 imageCapture = ImageCapture.Builder()
+                                    .setResolutionSelector(fixedSensorResolutionSelector)
                                     .setCaptureMode(ImageCapture.CAPTURE_MODE_MAXIMIZE_QUALITY)
                                     .setFlashMode(flashMode.toImageCaptureFlashMode())
                                     .build()
 
                                 val imageAnalyzer = ImageAnalysis.Builder()
+                                    .setResolutionSelector(fixedSensorResolutionSelector)
                                     .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                                     .build()
                                     .also { analysis ->
@@ -597,12 +631,10 @@ fun CameraScreen(
                                                             )
                                                         if (bitmap != null) {
                                                             val croppedBitmap =
-                                                                selectedRatio.toTargetAspectRatio()?.let { targetRatio ->
-                                                                    com.photoframer.vision.ImageConverter.centerCropToAspectRatio(
-                                                                        bitmap,
-                                                                        targetRatio
-                                                                    )
-                                                                } ?: bitmap
+                                                                com.photoframer.vision.ImageConverter.centerCropToAspectRatio(
+                                                                    bitmap,
+                                                                    FIXED_VIEWPORT_ASPECT_RATIO
+                                                                )
                                                             val scaledBitmap =
                                                                 com.photoframer.vision.ImageConverter.scaleBitmapToWidth(
                                                                     croppedBitmap,
@@ -666,18 +698,11 @@ fun CameraScreen(
                 GridOverlay(modifier = Modifier.fillMaxSize())
             }
 
-            if (selectedRatio != AspectRatioOption.FULL) {
-                AspectRatioMaskOverlay(
-                    selectedRatio = selectedRatio,
-                    modifier = Modifier.fillMaxSize()
-                )
-            }
-
             if (uiState is CameraUiState.Guiding) {
-                val guidingState = uiState as CameraUiState.Guiding
+                val activeGuidingState = uiState as CameraUiState.Guiding
 
                 if (!allStepsCompleted) {
-                    guidingState.currentStep?.let { step ->
+                    activeGuidingState.currentStep?.let { step ->
                         GuidanceOverlay(
                             step = step,
                             validationResult = validationResult
@@ -685,28 +710,12 @@ fun CameraScreen(
                     }
                 }
 
-                if (!allStepsCompleted) {
-                    guidingState.currentStep?.let { step ->
-                        TopGuidanceBar(
-                            step = step,
-                            currentStepIndex = guidingState.currentStepIndex,
-                            totalSteps = guidingState.totalSteps,
-                            onPreviousStep = { viewModel.previousStep() },
-                            onNextStep = { viewModel.nextStep() },
-                            isFirstStep = guidingState.isFirstStep,
-                            isLastStep = guidingState.isLastStep,
-                            validationResult = validationResult,
-                            modifier = Modifier
-                                .align(Alignment.TopCenter)
-                                .padding(top = 16.dp)
-                        )
-                    }
-                } else {
+                if (allStepsCompleted) {
                     AllStepsCompletedBanner(
                         onTakePhoto = captureGuidedPhoto,
                         modifier = Modifier
                             .align(Alignment.TopCenter)
-                            .padding(top = 80.dp)
+                            .padding(top = 16.dp)
                     )
                 }
 
@@ -741,7 +750,7 @@ fun CameraScreen(
                     )
                 }
 
-                val targetBitmap = viewModel.getCachedImage(guidingState.composition.technique)
+                val targetBitmap = viewModel.getCachedImage(activeGuidingState.composition.technique)
 
                 Box(
                     modifier = Modifier
@@ -837,8 +846,6 @@ fun CameraScreen(
                         .padding(bottom = 8.dp)
                 )
                 SideToolBar(
-                    selectedRatio = selectedRatio,
-                    onRatioChange = { selectedRatio = it },
                     selectedTimer = selectedTimer,
                     onTimerChange = { selectedTimer = it },
                     touchScreenPhotoEnabled = touchScreenPhotoEnabled,
@@ -856,6 +863,10 @@ fun CameraScreen(
             }
 
         }
+
+        // The viewport has a fixed 3:4 height. This spacer absorbs tall-screen surplus while
+        // leaving the bottom bars naturally measured and pinned to the screen bottom.
+        Spacer(modifier = Modifier.weight(1f))
 
         AnimatedContent(
             targetState = uiState,
