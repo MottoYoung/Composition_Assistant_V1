@@ -59,7 +59,6 @@ private val WheelMajorTick = Color(0xD9FFFFFF)
 
 data class CameraZoomUiState(
     val presets: List<CameraZoomPreset>,
-    val selectedLensIndex: Int?,
     val displayedZoomRatio: Float,
     val displayedZoomText: String,
     val zoomRange: ClosedFloatingPointRange<Float>,

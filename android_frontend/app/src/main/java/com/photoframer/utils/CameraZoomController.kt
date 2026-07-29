@@ -100,15 +100,6 @@ object CameraZoomController {
         return scaledZoom.coerceIn(range.start, range.endInclusive)
     }
 
-    fun presetAtZoom(
-        presets: List<CameraZoomPreset>,
-        effectiveZoomRatio: Float
-    ): CameraZoomPreset? {
-        return presets.firstOrNull { preset ->
-            abs(preset.effectiveZoomRatio - effectiveZoomRatio) < 0.001f
-        }
-    }
-
     fun formatZoomRatio(zoomRatio: Float): String {
         val rounded = (zoomRatio * 10f).toInt() / 10f
         val normalized = if (abs(rounded - rounded.toInt()) < 0.05f) {
