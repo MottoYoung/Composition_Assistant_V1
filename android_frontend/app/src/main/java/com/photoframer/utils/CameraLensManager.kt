@@ -47,12 +47,40 @@ object CameraLensManager {
     fun buildZoomCapabilities(
         logicalCameraId: String,
         continuousRange: ClosedFloatingPointRange<Float>,
-        physicalLenses: List<PhysicalLensMetadata>
+        physicalLenses: List<PhysicalLensMetadata>,
+        manufacturerZoomStops: List<Float> = emptyList()
     ): ZoomCapabilities {
+        val reportedStops = manufacturerZoomStops.filter { it in continuousRange }
+        val inferredStops = calibrateWideStopToLogicalRange(
+            opticalZoomRatios(logicalCameraId, physicalLenses),
+            continuousRange
+        )
         return ZoomCapabilities.from(
             continuousRange = continuousRange,
-            vendorLensRatios = opticalZoomRatios(logicalCameraId, physicalLenses)
+            vendorLensRatios = reportedStops.ifEmpty { inferredStops }
         )
+    }
+
+    /**
+     * Physical focal-length ratios are approximate. When the ultra-wide physical ratio is below
+     * the logical camera's public minimum, the logical route's zoom range is the authoritative
+     * value accepted by the HAL (for example, 0.5 focal ratio but 0.6x zoom minimum).
+     */
+    private fun calibrateWideStopToLogicalRange(
+        opticalRatios: List<Float>,
+        continuousRange: ClosedFloatingPointRange<Float>
+    ): List<Float> {
+        val smallestRatio = opticalRatios.firstOrNull() ?: return emptyList()
+        if (smallestRatio >= continuousRange.start ||
+            smallestRatio >= 1f ||
+            continuousRange.start >= 0.75f
+        ) {
+            return opticalRatios
+        }
+
+        return opticalRatios.mapIndexed { index, ratio ->
+            if (index == 0) continuousRange.start else ratio
+        }
     }
 
     fun getPhysicalLensMetadata(
@@ -82,6 +110,31 @@ object CameraLensManager {
                 focalLength = focalLength
             )
         }
+    }
+
+    /**
+     * Some OEMs publish seamless multi-camera switch points as vendor Camera2 keys. The key name
+     * is discovered instead of being tied to a model or manufacturer; standard focal metadata is
+     * used as the fallback when no such key exists.
+     */
+    fun getManufacturerZoomStops(
+        context: Context,
+        logicalCameraId: String
+    ): List<Float> {
+        val cameraManager = context.getSystemService(Context.CAMERA_SERVICE) as? CameraManager
+            ?: return emptyList()
+        val characteristics = runCatching {
+            cameraManager.getCameraCharacteristics(logicalCameraId)
+        }.getOrNull() ?: return emptyList()
+
+        return characteristics.keys
+            .asSequence()
+            .filter { key -> key.name.isMultiCameraZoomStopKey() }
+            .flatMap { key -> characteristics.numericValues(key).asSequence() }
+            .filter { it > 0f }
+            .distinctBy { (it * 1000f).roundToInt() }
+            .sorted()
+            .toList()
     }
 
     fun getAvailableLenses(context: Context): List<CameraLensOption> {
@@ -273,6 +326,32 @@ object CameraLensManager {
 
     private fun CameraCharacteristics.focalLengthOrNull(): Float? {
         return this[CameraCharacteristics.LENS_INFO_AVAILABLE_FOCAL_LENGTHS]?.minOrNull()
+    }
+
+    private fun String.isMultiCameraZoomStopKey(): Boolean {
+        val normalized = lowercase(Locale.US)
+        return normalized.contains("zoom") &&
+            (normalized.contains("step") ||
+                normalized.contains("switch") ||
+                normalized.contains("point"))
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    private fun CameraCharacteristics.numericValues(
+        key: CameraCharacteristics.Key<*>
+    ): List<Float> {
+        val value = runCatching {
+            get(key as CameraCharacteristics.Key<Any>)
+        }.getOrNull() ?: return emptyList()
+
+        return when (value) {
+            is FloatArray -> value.toList()
+            is DoubleArray -> value.map { it.toFloat() }
+            is IntArray -> value.map { it.toFloat() }
+            is LongArray -> value.map { it.toFloat() }
+            is Array<*> -> value.filterIsInstance<Number>().map { it.toFloat() }
+            else -> emptyList()
+        }
     }
 
     private fun lensFacingPriority(lensFacing: Int): Int {

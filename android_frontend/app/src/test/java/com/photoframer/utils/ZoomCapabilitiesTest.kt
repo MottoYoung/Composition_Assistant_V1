@@ -47,4 +47,35 @@ class ZoomCapabilitiesTest {
 
         assertEquals(listOf(1f), capabilities.opticalStops.map { it.zoomRatio })
     }
+
+    @Test
+    fun `uses the active logical camera minimum zoom for a physical ultra wide stop`() {
+        val capabilities = CameraLensManager.buildZoomCapabilities(
+            logicalCameraId = "0",
+            continuousRange = 0.6f..20f,
+            physicalLenses = listOf(
+                PhysicalLensMetadata(logicalCameraId = "0", physicalCameraId = "wide", focalLength = 3.23f),
+                PhysicalLensMetadata(logicalCameraId = "0", physicalCameraId = "main", focalLength = 6.06f),
+                PhysicalLensMetadata(logicalCameraId = "0", physicalCameraId = "tele", focalLength = 13.85f)
+            )
+        )
+
+        assertEquals(listOf(0.6f, 1f, 2.3f), capabilities.opticalStops.map { it.zoomRatio })
+    }
+
+    @Test
+    fun `prefers manufacturer reported multi camera stops over focal length estimates`() {
+        val capabilities = CameraLensManager.buildZoomCapabilities(
+            logicalCameraId = "0",
+            continuousRange = 0.6f..20f,
+            physicalLenses = listOf(
+                PhysicalLensMetadata(logicalCameraId = "0", physicalCameraId = "wide", focalLength = 3.23f),
+                PhysicalLensMetadata(logicalCameraId = "0", physicalCameraId = "main", focalLength = 6.06f),
+                PhysicalLensMetadata(logicalCameraId = "0", physicalCameraId = "tele", focalLength = 13.85f)
+            ),
+            manufacturerZoomStops = listOf(0.6f, 1f, 2f)
+        )
+
+        assertEquals(listOf(0.6f, 1f, 2f), capabilities.opticalStops.map { it.zoomRatio })
+    }
 }

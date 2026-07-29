@@ -196,6 +196,11 @@ fun CameraScreen(
             CameraLensManager.getPhysicalLensMetadata(context, logicalCameraId)
         }.orEmpty()
     }
+    val manufacturerZoomStops = remember(context, selectedLogicalCameraId) {
+        selectedLogicalCameraId?.let { logicalCameraId ->
+            CameraLensManager.getManufacturerZoomStops(context, logicalCameraId)
+        }.orEmpty()
+    }
     val arCoreStatus = rememberArCoreStatus(
         context = context,
         lifecycleOwner = lifecycleOwner,
@@ -635,7 +640,8 @@ fun CameraScreen(
                                         zoomCapabilities = CameraLensManager.buildZoomCapabilities(
                                             logicalCameraId = logicalCameraId,
                                             continuousRange = actualRange,
-                                            physicalLenses = physicalLensMetadata
+                                            physicalLenses = physicalLensMetadata,
+                                            manufacturerZoomStops = manufacturerZoomStops
                                         )
                                         desiredEffectiveZoom = desiredEffectiveZoom.coerceIn(
                                             actualRange.start,
