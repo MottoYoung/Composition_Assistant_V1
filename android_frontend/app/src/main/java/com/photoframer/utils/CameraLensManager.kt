@@ -8,6 +8,7 @@ import androidx.camera.camera2.interop.Camera2CameraInfo
 import androidx.camera.camera2.interop.ExperimentalCamera2Interop
 import androidx.camera.core.CameraSelector
 import java.util.Locale
+import kotlin.math.roundToInt
 
 data class CameraLensOption(
     val logicalCameraId: String,
@@ -17,7 +18,43 @@ data class CameraLensOption(
     val targetZoomRatio: Float? = null
 )
 
+data class PhysicalLensMetadata(
+    val logicalCameraId: String,
+    val physicalCameraId: String,
+    val focalLength: Float
+)
+
 object CameraLensManager {
+
+    private fun opticalZoomRatios(
+        logicalCameraId: String,
+        physicalLenses: List<PhysicalLensMetadata>
+    ): List<Float> {
+        val focalLengths = physicalLenses
+            .asSequence()
+            .filter { it.logicalCameraId == logicalCameraId && it.focalLength > 0f }
+            .map { it.focalLength }
+            .distinct()
+            .sorted()
+            .toList()
+        val referenceFocalLength = focalLengths.getOrNull((focalLengths.size - 1) / 2) ?: return emptyList()
+
+        return focalLengths
+            .map { normalizeOpticalZoomRatio(it / referenceFocalLength) }
+            .distinct()
+            .sorted()
+    }
+
+    fun buildZoomCapabilities(
+        logicalCameraId: String,
+        continuousRange: ClosedFloatingPointRange<Float>,
+        physicalLenses: List<PhysicalLensMetadata>
+    ): ZoomCapabilities {
+        return ZoomCapabilities.from(
+            continuousRange = continuousRange,
+            vendorLensRatios = opticalZoomRatios(logicalCameraId, physicalLenses)
+        )
+    }
 
     fun getAvailableLenses(context: Context): List<CameraLensOption> {
         val cameraManager = context.getSystemService(Context.CAMERA_SERVICE) as? CameraManager
@@ -189,6 +226,10 @@ object CameraLensManager {
 
     private fun normalizeZoomRatio(ratio: Float): Float {
         return (ratio * 10f).toInt() / 10f
+    }
+
+    private fun normalizeOpticalZoomRatio(ratio: Float): Float {
+        return (ratio * 10f).roundToInt() / 10f
     }
 
     private fun List<CameraLensOption>.removeDuplicateBackLensLabels(): List<CameraLensOption> {
