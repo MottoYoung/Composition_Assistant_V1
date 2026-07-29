@@ -500,43 +500,44 @@ fun CameraScreen(
         }
     }
 
-    Column(
+    Box(
         modifier = Modifier
             .fillMaxSize()
             .background(Color.Black)
     ) {
-        val guidingState = uiState as? CameraUiState.Guiding
-        if (guidingState != null && !allStepsCompleted) {
-            guidingState.currentStep?.let { step ->
-                TopGuidanceBar(
-                    step = step,
-                    currentStepIndex = guidingState.currentStepIndex,
-                    totalSteps = guidingState.totalSteps,
-                    onPreviousStep = { viewModel.previousStep() },
-                    onNextStep = { viewModel.nextStep() },
-                    isFirstStep = guidingState.isFirstStep,
-                    isLastStep = guidingState.isLastStep,
-                    validationResult = validationResult
+        Column(modifier = Modifier.fillMaxSize()) {
+            val guidingState = uiState as? CameraUiState.Guiding
+            if (guidingState != null && !allStepsCompleted) {
+                guidingState.currentStep?.let { step ->
+                    TopGuidanceBar(
+                        step = step,
+                        currentStepIndex = guidingState.currentStepIndex,
+                        totalSteps = guidingState.totalSteps,
+                        onPreviousStep = { viewModel.previousStep() },
+                        onNextStep = { viewModel.nextStep() },
+                        isFirstStep = guidingState.isFirstStep,
+                        isLastStep = guidingState.isLastStep,
+                        validationResult = validationResult
+                    )
+                }
+            } else if (uiState !is CameraUiState.Guiding) {
+                CameraTopBar(
+                    flashMode = flashMode,
+                    onFlashModeChange = { newMode ->
+                        flashMode = newMode
+                        imageCapture?.flashMode = newMode.toImageCaptureFlashMode()
+                    },
+                    gridEnabled = gridEnabled,
+                    onGridToggle = { gridEnabled = !gridEnabled },
+                    visualStyle = visualStyle,
+                    onVisualStyleChange = { visualStyle = it },
+                    activeEntryMode = activeEntryMode,
+                    showInFrameButton = uiState !is CameraUiState.Analyzing,
+                    onInFrameClick = startInFrameComposition,
+                    showAiButton = uiState !is CameraUiState.Analyzing,
+                    onAiClick = startAiAnalysis
                 )
             }
-        } else if (uiState !is CameraUiState.Guiding) {
-            CameraTopBar(
-                flashMode = flashMode,
-                onFlashModeChange = { newMode ->
-                    flashMode = newMode
-                    imageCapture?.flashMode = newMode.toImageCaptureFlashMode()
-                },
-                gridEnabled = gridEnabled,
-                onGridToggle = { gridEnabled = !gridEnabled },
-                visualStyle = visualStyle,
-                onVisualStyleChange = { visualStyle = it },
-                activeEntryMode = activeEntryMode,
-                showInFrameButton = uiState !is CameraUiState.Analyzing,
-                onInFrameClick = startInFrameComposition,
-                showAiButton = uiState !is CameraUiState.Analyzing,
-                onAiClick = startAiAnalysis
-            )
-        }
 
         Box(
             modifier = Modifier
@@ -864,11 +865,16 @@ fun CameraScreen(
 
         }
 
-        // The viewport has a fixed 3:4 height. This spacer absorbs tall-screen surplus while
-        // leaving the bottom bars naturally measured and pinned to the screen bottom.
-        Spacer(modifier = Modifier.weight(1f))
+            // The viewport has a fixed 3:4 height. This spacer absorbs tall-screen surplus.
+            Spacer(modifier = Modifier.weight(1f))
+        }
 
+        // Bottom pages are foreground overlays: their natural height must not constrain the
+        // fixed 3:4 camera viewport.
         AnimatedContent(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth(),
             targetState = uiState,
             transitionSpec = {
                 (slideInVertically { it / 3 } + fadeIn())
