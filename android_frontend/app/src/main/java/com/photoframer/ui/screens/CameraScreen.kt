@@ -109,7 +109,6 @@ import com.photoframer.utils.GalleryPermissionUtils
 import com.photoframer.utils.GalleryUtils
 import com.photoframer.utils.ImageFileDecoder
 import com.photoframer.utils.ImageSaver
-import com.photoframer.utils.ZoomCapabilities
 import com.photoframer.viewmodel.CameraViewModel
 import java.io.File
 import java.util.concurrent.atomic.AtomicInteger
@@ -143,14 +142,6 @@ fun CameraScreen(
     var cameraControl by remember { mutableStateOf<CameraControl?>(null) }
     var previewView by remember { mutableStateOf<PreviewView?>(null) }
     var rawZoomRatio by remember { mutableFloatStateOf(1f) }
-    var zoomCapabilities by remember {
-        mutableStateOf(
-            ZoomCapabilities(
-                continuousRange = 1f..1f,
-                opticalStops = emptyList()
-            )
-        )
-    }
     val cameraExecutor = remember { Executors.newSingleThreadExecutor() }
     val arCorePoseTracker = remember(context.applicationContext) {
         ArCorePoseTracker(context.applicationContext)
@@ -190,17 +181,13 @@ fun CameraScreen(
     }
     val selectedLens = availableLenses.getOrNull(selectedLensIndex)
     val selectedFacing = selectedLens?.lensFacing ?: CameraSelector.LENS_FACING_BACK
-    val selectedLogicalCameraId = selectedLens?.logicalCameraId
-    val physicalLensMetadata = remember(context, selectedLogicalCameraId) {
-        selectedLogicalCameraId?.let { logicalCameraId ->
-            CameraLensManager.getPhysicalLensMetadata(context, logicalCameraId)
-        }.orEmpty()
+    val currentFacingLenses = availableLenses.mapIndexedNotNull { index, lens ->
+        (index to lens).takeIf { lens.lensFacing == selectedFacing }
     }
-    val manufacturerZoomStops = remember(context, selectedLogicalCameraId) {
-        selectedLogicalCameraId?.let { logicalCameraId ->
-            CameraLensManager.getManufacturerZoomStops(context, logicalCameraId)
-        }.orEmpty()
-    }
+    val zoomPresets = CameraZoomController.buildPresets(currentFacingLenses)
+    // Physical IDs are preset metadata only. The selected logical CameraX route remains open so
+    // that the vendor HAL, rather than app code, selects the active physical camera.
+    val zoomControlLens = selectedLens.takeUnless { it?.physicalCameraId != null }
     val arCoreStatus = rememberArCoreStatus(
         context = context,
         lifecycleOwner = lifecycleOwner,
@@ -221,14 +208,19 @@ fun CameraScreen(
         arCoreStatus = arCoreStatus,
         selectedFacing = selectedFacing
     )
-    val zoomRange = zoomCapabilities.continuousRange
-    val actualEffectiveZoom = rawZoomRatio
+    val zoomInteractionRange = CameraZoomController.effectiveZoomRange(
+        presets = zoomPresets,
+        currentLens = selectedLens,
+        allowLensSwitch = true
+    )
+    val actualEffectiveZoom = CameraZoomController.effectiveZoomRatio(zoomControlLens, rawZoomRatio)
     val displayedZoom = if (isZoomRulerVisible) desiredEffectiveZoom else actualEffectiveZoom
     val zoomUiState = CameraZoomUiState(
-        opticalStops = zoomCapabilities.opticalStops,
+        presets = zoomPresets,
+        selectedLensIndex = selectedLensIndex,
         displayedZoomRatio = displayedZoom,
         displayedZoomText = CameraZoomController.formatZoomRatio(displayedZoom),
-        zoomRange = zoomRange,
+        zoomRange = zoomInteractionRange,
         isWheelVisible = isZoomRulerVisible
     )
     fun refreshLatestThumbnail(canReadGallery: Boolean = hasGalleryReadPermission) {
@@ -267,20 +259,6 @@ fun CameraScreen(
         }
     }
 
-    fun defaultLensIndex(lenses: List<CameraLensOption>): Int {
-        val mainBackLensIndex = lenses.indexOfFirst { lens ->
-            lens.lensFacing == CameraSelector.LENS_FACING_BACK &&
-                (lens.targetZoomRatio?.let { kotlin.math.abs(it - 1f) < 0.15f } == true)
-        }
-        if (mainBackLensIndex >= 0) {
-            return mainBackLensIndex
-        }
-
-        return lenses.indexOfFirst { lens ->
-            lens.lensFacing == CameraSelector.LENS_FACING_BACK
-        }.takeIf { it >= 0 } ?: 0
-    }
-
     fun openGallery() {
         GalleryUtils.openGallery(context)
     }
@@ -291,9 +269,16 @@ fun CameraScreen(
 
     fun applyTargetEffectiveZoom(
         targetZoom: Float,
-        revealRuler: Boolean = false
+        revealRuler: Boolean = false,
+        allowLensSwitch: Boolean = true
     ) {
-        val clampedZoom = targetZoom.coerceIn(zoomRange.start, zoomRange.endInclusive)
+        if (zoomPresets.isEmpty()) return
+        val range = CameraZoomController.effectiveZoomRange(
+            presets = zoomPresets,
+            currentLens = selectedLens,
+            allowLensSwitch = allowLensSwitch
+        )
+        val clampedZoom = targetZoom.coerceIn(range.start, range.endInclusive)
 
         desiredEffectiveZoom = clampedZoom
         if (revealRuler) {
@@ -301,8 +286,21 @@ fun CameraScreen(
             refreshZoomAutoHide()
         }
 
-        // 保持同一个逻辑相机绑定；连续倍率交给 HAL 决定是否切换物理镜头。
-        cameraControl?.setZoomRatio(clampedZoom)
+        val targetPreset = if (allowLensSwitch) {
+            CameraZoomController.chooseLensForZoom(zoomPresets, clampedZoom)
+        } else {
+            null
+        }
+        val targetLens = targetPreset?.let { availableLenses.getOrNull(it.lensIndex) } ?: selectedLens
+        val targetZoomControlLens = targetLens.takeUnless { it?.physicalCameraId != null }
+        val targetRawZoom = CameraZoomController.computeRawZoomRatio(targetZoomControlLens, clampedZoom)
+
+        if (targetPreset != null && targetPreset.lensIndex != selectedLensIndex) {
+            selectedLensIndex = targetPreset.lensIndex
+        }
+        cameraControl?.setZoomRatio(
+            CameraZoomController.cameraRequestZoomRatio(targetZoomControlLens, targetRawZoom)
+        )
     }
 
     fun revealZoomRuler() {
@@ -312,10 +310,7 @@ fun CameraScreen(
     }
 
     fun finishZoomInteraction() {
-        val snappedZoom = CameraZoomController.snapToOpticalStop(
-            targetZoomRatio = desiredEffectiveZoom,
-            opticalStops = zoomCapabilities.opticalStops
-        )
+        val snappedZoom = CameraZoomController.snapZoomRatio(desiredEffectiveZoom, zoomPresets)
         applyTargetEffectiveZoom(snappedZoom, revealRuler = true)
     }
 
@@ -340,7 +335,7 @@ fun CameraScreen(
 
     LaunchedEffect(context) {
         availableLenses = CameraLensManager.getAvailableLenses(context)
-        selectedLensIndex = defaultLensIndex(availableLenses)
+        selectedLensIndex = CameraLensManager.defaultLensIndex(availableLenses)
         desiredEffectiveZoom =
             availableLenses.getOrNull(selectedLensIndex)?.targetZoomRatio ?: 1f
         val granted = GalleryPermissionUtils.hasGalleryReadPermission(context)
@@ -352,9 +347,11 @@ fun CameraScreen(
         }
     }
 
-    LaunchedEffect(cameraControl, desiredEffectiveZoom, zoomRange.start, zoomRange.endInclusive) {
+    LaunchedEffect(cameraControl, selectedLensIndex, desiredEffectiveZoom) {
+        val requestLens = selectedLens.takeUnless { it?.physicalCameraId != null }
+        val rawRequestZoom = CameraZoomController.computeRawZoomRatio(requestLens, desiredEffectiveZoom)
         cameraControl?.setZoomRatio(
-            desiredEffectiveZoom.coerceIn(zoomRange.start, zoomRange.endInclusive)
+            CameraZoomController.cameraRequestZoomRatio(requestLens, rawRequestZoom)
         )
     }
 
@@ -517,8 +514,8 @@ fun CameraScreen(
                     detectTransformGestures { _, _, zoom, _ ->
                         val currentZoom = desiredEffectiveZoom
                         val newZoom = (currentZoom * zoom).coerceIn(
-                            zoomRange.start,
-                            zoomRange.endInclusive
+                            zoomInteractionRange.start,
+                            zoomInteractionRange.endInclusive
                         )
                         if (kotlin.math.abs(newZoom - currentZoom) > 0.001f) {
                             applyTargetEffectiveZoom(newZoom)
@@ -602,7 +599,7 @@ fun CameraScreen(
                                                             val poseSample = arCorePoseTracker.latestPoseSample()
                                                             viewModel.validateCurrentFrame(
                                                                 currentFrame = scaledBitmap,
-                                                                currentZoomRatio = rawZoomRatio,
+                                                                currentZoomRatio = actualEffectiveZoom,
                                                                 cameraPoseSample = poseSample
                                                             )
                                                         }
@@ -634,19 +631,6 @@ fun CameraScreen(
                                     cameraControl = camera.cameraControl
                                     camera.cameraInfo.zoomState.observe(lifecycleOwner) { state ->
                                         rawZoomRatio = state.zoomRatio
-                                        val logicalCameraId = selectedLogicalCameraId
-                                            ?: return@observe
-                                        val actualRange = state.minZoomRatio..state.maxZoomRatio
-                                        zoomCapabilities = CameraLensManager.buildZoomCapabilities(
-                                            logicalCameraId = logicalCameraId,
-                                            continuousRange = actualRange,
-                                            physicalLenses = physicalLensMetadata,
-                                            manufacturerZoomStops = manufacturerZoomStops
-                                        )
-                                        desiredEffectiveZoom = desiredEffectiveZoom.coerceIn(
-                                            actualRange.start,
-                                            actualRange.endInclusive
-                                        )
                                     }
                                 } catch (e: Exception) {
                                     Log.e(TAG, "相机绑定失败", e)

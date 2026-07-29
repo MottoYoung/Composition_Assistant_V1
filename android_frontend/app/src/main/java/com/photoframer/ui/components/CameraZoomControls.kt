@@ -10,13 +10,14 @@ import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Cameraswitch
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -36,24 +37,29 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.photoframer.ui.theme.AccentYellow
 import com.photoframer.utils.CameraZoomController
-import com.photoframer.utils.ZoomStop
+import com.photoframer.utils.CameraZoomPreset
 import kotlin.math.PI
 import kotlin.math.abs
+import kotlin.math.ceil
 import kotlin.math.cos
+import kotlin.math.floor
 import kotlin.math.ln
 import kotlin.math.sin
 
-private const val WHEEL_HEIGHT_DP = 244
-
-private val WheelSurface = Color(0xD9161616)
-private val WheelRim = Color.White.copy(alpha = 0.20f)
-private val WheelFineTick = Color.White.copy(alpha = 0.28f)
-private val WheelMajorTick = Color.White.copy(alpha = 0.78f)
+private val ZoomAccent = Color(0xFFFF8A14)
+private val WheelSurface = Color(0xCC3A3836)
+private val WheelRimShadow = Color(0x4D171716)
+private val WheelRim = Color(0x3DFFFFFF)
+private val WheelText = Color.White.copy(alpha = 0.92f)
+private val WheelSecondaryText = Color.White.copy(alpha = 0.45f)
+private val WheelFineTick = Color(0x38FFFFFF)
+private val WheelMediumTick = Color(0x66FFFFFF)
+private val WheelMajorTick = Color(0xD9FFFFFF)
 
 data class CameraZoomUiState(
-    val opticalStops: List<ZoomStop>,
+    val presets: List<CameraZoomPreset>,
+    val selectedLensIndex: Int?,
     val displayedZoomRatio: Float,
     val displayedZoomText: String,
     val zoomRange: ClosedFloatingPointRange<Float>,
@@ -69,22 +75,28 @@ fun CameraZoomControls(
     onWheelDragEnd: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    if (state.presets.isEmpty()) return
+
     Box(
         modifier = modifier
-            .zoomWheelDragInput(state, onWheelReveal, onWheelScrub, onWheelDragEnd)
+            .zoomWheelDragInput(
+                state = state,
+                onWheelReveal = onWheelReveal,
+                onWheelScrub = onWheelScrub,
+                onWheelDragEnd = onWheelDragEnd
+            )
             .fillMaxWidth()
-            .height(if (state.isWheelVisible) WHEEL_HEIGHT_DP.dp else 62.dp),
+            .height(if (state.isWheelVisible) 286.dp else 68.dp),
         contentAlignment = Alignment.BottomCenter
     ) {
         if (state.isWheelVisible) {
-            ApertureZoomWheel(state)
+            ReferenceZoomWheel(state = state)
         } else {
-            ZoomQuickButtons(
-                stops = state.opticalStops,
+            ZoomPresetButtons(
+                targets = state.compactTargets(),
                 displayedZoomRatio = state.displayedZoomRatio,
-                displayedZoomText = state.displayedZoomText,
                 onZoomTargetClick = onZoomTargetClick,
-                onWheelReveal = onWheelReveal
+                onSelectedPresetClick = onWheelReveal
             )
         }
     }
@@ -105,6 +117,7 @@ private fun Modifier.zoomWheelDragInput(
     return pointerInput(state.zoomRange.start, state.zoomRange.endInclusive) {
         var startZoomRatio = 1f
         var accumulatedDragPx = 0f
+
         detectHorizontalDragGestures(
             onDragStart = {
                 startZoomRatio = latestState.displayedZoomRatio
@@ -128,34 +141,27 @@ private fun Modifier.zoomWheelDragInput(
 }
 
 @Composable
-private fun ZoomQuickButtons(
-    stops: List<ZoomStop>,
+private fun ZoomPresetButtons(
+    targets: List<ZoomQuickTarget>,
     displayedZoomRatio: Float,
-    displayedZoomText: String,
     onZoomTargetClick: (Float) -> Unit,
-    onWheelReveal: () -> Unit
+    onSelectedPresetClick: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
-    if (stops.isEmpty()) {
-        ZoomQuickButton(
-            label = displayedZoomText,
-            selected = true,
-            onClick = onWheelReveal
-        )
-        return
-    }
-
     Row(
-        modifier = Modifier.wrapContentWidth(),
+        modifier = modifier
+            .wrapContentWidth()
+            .height(44.dp),
         horizontalArrangement = Arrangement.spacedBy(10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        stops.forEach { stop ->
-            val selected = stop.isSelected(displayedZoomRatio)
-            ZoomQuickButton(
-                label = CameraZoomController.formatZoomRatio(stop.zoomRatio),
+        targets.forEach { target ->
+            val selected = target.isSelected(displayedZoomRatio)
+            ZoomPresetButton(
+                label = if (abs(target.zoomRatio - 1f) < 0.01f) "1x" else target.label,
                 selected = selected,
                 onClick = {
-                    if (selected) onWheelReveal() else onZoomTargetClick(stop.zoomRatio)
+                    if (selected) onSelectedPresetClick() else onZoomTargetClick(target.zoomRatio)
                 }
             )
         }
@@ -163,25 +169,30 @@ private fun ZoomQuickButtons(
 }
 
 @Composable
-private fun ZoomQuickButton(
+private fun ZoomPresetButton(
     label: String,
     selected: Boolean,
     onClick: () -> Unit
 ) {
+    val shape = CircleShape
     Box(
         modifier = Modifier
-            .size(42.dp)
-            .clip(CircleShape)
-            .background(if (selected) Color(0xD92D2923) else Color(0x8A121212))
-            .border(1.dp, if (selected) AccentYellow.copy(alpha = 0.35f) else WheelRim, CircleShape)
+            .size(40.dp)
+            .clip(shape)
+            .background(if (selected) Color(0xC4322921) else Color.Transparent)
+            .border(
+                width = 1.dp,
+                color = if (selected) Color.White.copy(alpha = 0.08f) else Color.Transparent,
+                shape = shape
+            )
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
         Text(
             text = label,
-            color = if (selected) AccentYellow else Color.White.copy(alpha = 0.9f),
-            style = MaterialTheme.typography.labelLarge.copy(
-                fontSize = 15.sp,
+            color = if (selected) ZoomAccent else WheelText,
+            style = MaterialTheme.typography.titleMedium.copy(
+                fontSize = 17.sp,
                 fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium
             )
         )
@@ -189,120 +200,239 @@ private fun ZoomQuickButton(
 }
 
 @Composable
-private fun ApertureZoomWheel(state: CameraZoomUiState) {
-    Canvas(modifier = Modifier.fillMaxWidth().height(WHEEL_HEIGHT_DP.dp)) {
+private fun ReferenceZoomWheel(
+    state: CameraZoomUiState,
+    modifier: Modifier = Modifier
+) {
+    Canvas(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(286.dp)
+    ) {
         val centerX = size.width / 2f
-        val radius = size.width * 0.54f
-        val centerY = size.height + radius * 0.43f
+        val radius = size.width * 0.51f
+        // This Canvas is bottom-aligned inside the 3:4 preview, so its lower edge is the
+        // wheel's geometry anchor. No screen-level offset is used here.
+        val centerY = size.height + radius * 0.37f
         val wheelTop = centerY - radius
-        val outerTickRadius = radius * 0.95f
+        val tickAngleDegrees = 2f
+        val ticksPerStop = 16f
+        val zoomStep = ln(2f) / ticksPerStop
+        val currentTick = ln(state.displayedZoomRatio.coerceAtLeast(0.01f)) / zoomStep
+        val minTick = ln(state.zoomRange.start.coerceAtLeast(0.01f)) / zoomStep
+        val maxTick = ln(state.zoomRange.endInclusive.coerceAtLeast(0.01f)) / zoomStep
+        val rimRadius = radius * 0.965f
+        val outerTickRadius = radius * 0.955f
 
-        drawCircle(WheelSurface, radius, Offset(centerX, centerY))
+        drawCircle(
+            color = WheelSurface,
+            radius = radius,
+            center = Offset(centerX, centerY)
+        )
+        drawArc(
+            color = WheelRimShadow,
+            startAngle = 198f,
+            sweepAngle = 144f,
+            useCenter = false,
+            topLeft = Offset(centerX - rimRadius, centerY - rimRadius),
+            size = Size(rimRadius * 2f, rimRadius * 2f),
+            style = androidx.compose.ui.graphics.drawscope.Stroke(width = radius * 0.03f)
+        )
         drawArc(
             color = WheelRim,
             startAngle = 198f,
             sweepAngle = 144f,
             useCenter = false,
-            topLeft = Offset(centerX - radius, centerY - radius),
-            size = Size(radius * 2f, radius * 2f),
-            style = androidx.compose.ui.graphics.drawscope.Stroke(width = radius * 0.004f)
+            topLeft = Offset(centerX - rimRadius, centerY - rimRadius),
+            size = Size(rimRadius * 2f, rimRadius * 2f),
+            style = androidx.compose.ui.graphics.drawscope.Stroke(width = radius * 0.0022f)
         )
+        val firstTick = floor(minTick).toInt()
+        val lastTick = ceil(maxTick).toInt()
+        for (globalTick in firstTick..lastTick) {
+            if (globalTick < minTick - 0.001f || globalTick > maxTick + 0.001f) continue
 
-        repeat(31) { index ->
-            val angleDegrees = -150f + index * 4f
-            val major = index % 4 == 0
+            val angleDegrees = -90f + (globalTick - currentTick) * tickAngleDegrees
+            if (angleDegrees < -150f || angleDegrees > -30f) continue
+
+            val tickInStop = ((globalTick % ticksPerStop.toInt()) + ticksPerStop.toInt()) % ticksPerStop.toInt()
+            val isMajorTick = tickInStop == 0
+            val isMediumTick = tickInStop % 4 == 0
             val angle = angleDegrees.toRadians()
-            val length = if (major) radius * 0.055f else radius * 0.022f
+            val tickLength = when {
+                isMajorTick -> radius * 0.060f
+                isMediumTick -> radius * 0.037f
+                else -> radius * 0.019f
+            }
+            val edgeFade = 1f - (abs(angleDegrees + 90f) / 60f).coerceIn(0f, 1f) * 0.34f
+            val tickColor = when {
+                isMajorTick -> WheelMajorTick
+                isMediumTick -> WheelMediumTick
+                else -> WheelFineTick
+            }.copy(alpha = when {
+                isMajorTick -> 0.94f * edgeFade
+                isMediumTick -> 0.68f * edgeFade
+                else -> 0.40f * edgeFade
+            })
             drawLine(
-                color = if (major) WheelMajorTick else WheelFineTick,
+                color = tickColor,
                 start = Offset(
-                    centerX + cos(angle) * (outerTickRadius - length),
-                    centerY + sin(angle) * (outerTickRadius - length)
+                    centerX + cos(angle) * (outerTickRadius - tickLength),
+                    centerY + sin(angle) * (outerTickRadius - tickLength)
                 ),
                 end = Offset(
                     centerX + cos(angle) * outerTickRadius,
                     centerY + sin(angle) * outerTickRadius
                 ),
-                strokeWidth = if (major) radius * 0.004f else radius * 0.002f
+                strokeWidth = when {
+                    isMajorTick -> radius * 0.0045f
+                    isMediumTick -> radius * 0.0028f
+                    else -> radius * 0.0017f
+                }
             )
         }
 
-        state.opticalStops.forEach { stop ->
-            val angleDegrees = angleForStop(stop.zoomRatio, state.displayedZoomRatio)
-            if (angleDegrees !in -143f..-37f || abs(angleDegrees + 90f) < 5f) return@forEach
+        state.wheelTargets().forEach { target ->
+            val targetTick = ln(target.zoomRatio.coerceAtLeast(0.01f)) / zoomStep
+            val angleDegrees = -90f + (targetTick - currentTick) * tickAngleDegrees
+            if (angleDegrees < -143f || angleDegrees > -37f) return@forEach
+
             val angle = angleDegrees.toRadians()
-            drawLine(
-                color = Color.White,
-                start = Offset(
-                    centerX + cos(angle) * (outerTickRadius - radius * 0.08f),
-                    centerY + sin(angle) * (outerTickRadius - radius * 0.08f)
-                ),
-                end = Offset(
-                    centerX + cos(angle) * outerTickRadius,
-                    centerY + sin(angle) * outerTickRadius
-                ),
-                strokeWidth = radius * 0.005f
-            )
-            drawWheelLabel(
-                label = CameraZoomController.formatZoomRatio(stop.zoomRatio),
-                center = Offset(
-                    centerX + cos(angle) * radius * 0.70f,
-                    centerY + sin(angle) * radius * 0.70f
-                ),
-                rotationDegrees = angleDegrees + 90f,
-                textSize = radius * 0.055f
-            )
+            val nearPointer = abs(targetTick - currentTick) < 0.45f
+            if (!nearPointer) {
+                drawLine(
+                    color = WheelText,
+                    start = Offset(
+                        centerX + cos(angle) * (outerTickRadius - radius * 0.065f),
+                        centerY + sin(angle) * (outerTickRadius - radius * 0.065f)
+                    ),
+                    end = Offset(
+                        centerX + cos(angle) * outerTickRadius,
+                        centerY + sin(angle) * outerTickRadius
+                    ),
+                    strokeWidth = radius * 0.005f
+                )
+
+                val labelRadius = radius * 0.70f
+                val labelCenter = Offset(
+                    x = centerX + cos(angle) * labelRadius,
+                    y = centerY + sin(angle) * labelRadius
+                )
+                drawWheelLabel(
+                    label = target.label,
+                    subtitle = target.focalLengthLabel,
+                    center = labelCenter,
+                    rotationDegrees = angleDegrees + 90f,
+                    labelTextSize = radius * 0.055f,
+                    subtitleTextSize = radius * 0.035f
+                )
+            }
         }
 
         drawLine(
-            color = AccentYellow,
+            color = ZoomAccent,
             start = Offset(centerX, wheelTop + radius * 0.025f),
-            end = Offset(centerX, wheelTop + radius * 0.07f),
-            strokeWidth = radius * 0.007f
+            end = Offset(centerX, wheelTop + radius * 0.062f),
+            strokeWidth = radius * 0.006f
         )
-        drawWheelLabel(
-            label = state.displayedZoomText,
+        drawCenteredText(
+            text = state.displayedZoomText,
             center = Offset(centerX, wheelTop + radius * 0.20f),
-            rotationDegrees = 0f,
-            textSize = radius * 0.078f,
-            color = AccentYellow,
+            color = ZoomAccent,
+            textSize = radius * 0.072f,
             bold = true
         )
     }
 }
 
-private fun angleForStop(stopZoomRatio: Float, currentZoomRatio: Float): Float {
-    val ratio = stopZoomRatio / currentZoomRatio.coerceAtLeast(0.01f)
-    return -90f + (ln(ratio) / ln(2f)).toFloat() * 36f
-}
-
-private fun ZoomStop.isSelected(currentZoomRatio: Float): Boolean {
-    val tolerance = maxOf(zoomRatio * 0.08f, 0.05f)
-    return abs(currentZoomRatio - zoomRatio) <= tolerance
-}
-
 private fun DrawScope.drawWheelLabel(
     label: String,
+    subtitle: String?,
     center: Offset,
     rotationDegrees: Float,
-    textSize: Float,
-    color: Color = Color.White,
-    bold: Boolean = false
+    labelTextSize: Float,
+    subtitleTextSize: Float
 ) {
     val canvas = drawContext.canvas.nativeCanvas
     canvas.save()
     canvas.rotate(rotationDegrees, center.x, center.y)
+    val labelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = WheelText.toArgb()
+        textSize = labelTextSize
+        textAlign = Paint.Align.CENTER
+        typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
+    }
+    canvas.drawText(label, center.x, center.y, labelPaint)
+    subtitle?.let {
+        val subtitlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = WheelSecondaryText.toArgb()
+            textSize = subtitleTextSize
+            textAlign = Paint.Align.CENTER
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
+        }
+        canvas.drawText(it, center.x, center.y + subtitleTextSize * 1.45f, subtitlePaint)
+    }
+    canvas.restore()
+}
+
+private fun DrawScope.drawCenteredText(
+    text: String,
+    center: Offset,
+    color: Color,
+    textSize: Float,
+    bold: Boolean
+) {
     val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         this.color = color.toArgb()
         this.textSize = textSize
         textAlign = Paint.Align.CENTER
         typeface = Typeface.create(Typeface.DEFAULT, if (bold) Typeface.BOLD else Typeface.NORMAL)
     }
-    canvas.drawText(label, center.x, center.y, paint)
-    canvas.restore()
+    drawContext.canvas.nativeCanvas.drawText(text, center.x, center.y, paint)
 }
 
 private fun Float.toRadians(): Float = (this / 180f * PI).toFloat()
+
+private data class ZoomQuickTarget(
+    val label: String,
+    val zoomRatio: Float,
+    val focalLengthLabel: String? = null
+) {
+    fun isSelected(currentZoomRatio: Float): Boolean {
+        val tolerance = maxOf(zoomRatio * 0.08f, 0.05f)
+        return abs(currentZoomRatio - zoomRatio) <= tolerance
+    }
+}
+
+private fun CameraZoomUiState.compactTargets(): List<ZoomQuickTarget> {
+    return wheelTargets().filter { it.zoomRatio <= 3f }
+}
+
+private fun CameraZoomUiState.wheelTargets(): List<ZoomQuickTarget> {
+    val focalLengths = mapOf(
+        0.6f to "15 mm",
+        1f to "23 mm",
+        3f to "73 mm"
+    )
+    return listOf(0.6f, 1f, 2f, 3f, 6f, CameraZoomController.MAX_EFFECTIVE_ZOOM_RATIO)
+        .distinct()
+        .filter { it >= zoomRange.start - 0.01f && it <= zoomRange.endInclusive + 0.01f }
+        .map {
+            ZoomQuickTarget(
+                label = formatQuickTarget(it, includeOneX = false),
+                zoomRatio = it,
+                focalLengthLabel = focalLengths[it]
+            )
+        }
+}
+
+private fun formatQuickTarget(zoomRatio: Float, includeOneX: Boolean): String {
+    return when {
+        abs(zoomRatio - 1f) < 0.01f && includeOneX -> "1x"
+        abs(zoomRatio - zoomRatio.toInt()) < 0.01f -> zoomRatio.toInt().toString()
+        else -> String.format("%.1f", zoomRatio)
+    }
+}
 
 @Composable
 fun CameraFacingSwitchButton(
@@ -320,7 +450,7 @@ fun CameraFacingSwitchButton(
         contentAlignment = Alignment.Center
     ) {
         Icon(
-            imageVector = Icons.Default.Refresh,
+            imageVector = Icons.Default.Cameraswitch,
             contentDescription = "切换前后摄像头",
             tint = if (enabled) Color.White else Color.White.copy(alpha = 0.45f),
             modifier = Modifier.size(26.dp)
