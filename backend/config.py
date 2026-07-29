@@ -32,6 +32,10 @@ STAGE0_PROVIDER = STAGE1_PROVIDER
 
 # ==================== API Keys ==================== #
 DASHSCOPE_API_KEY = _api_key("DASHSCOPE_API_KEY")
+# GOOGLE_API_KEY 必须是在目标 Google Cloud 项目中创建的标准 API Key。
+# GEMINI_API_KEY 仅保留为兼容读取；实际初始化始终使用 Enterprise 通道。
+GOOGLE_API_KEY = _api_key("GOOGLE_API_KEY")
+GOOGLE_CLOUD_PROJECT = _api_key("GOOGLE_CLOUD_PROJECT")
 GEMINI_API_KEY = _api_key("GEMINI_API_KEY")
 GEMINI_DOMESTIC_API_KEY = _api_key("GEMINI_DOMESTIC_API_KEY")
 OPENROUTER_API_KEY = _api_key("OPENROUTER_API_KEY")
@@ -50,7 +54,7 @@ GEMINI_PROXY_URL = "http://127.0.0.1:11087"
 USE_OPENROUTER_PROXY = True
 OPENROUTER_PROXY_URL = os.environ.get("OPENROUTER_PROXY_URL", GEMINI_PROXY_URL).strip()
 # Gemini 国内中转配置：
-# - 关闭时：继续使用官方 Gemini API（GEMINI_API_KEY）
+# - 关闭时：使用 Gemini Enterprise Agent Platform（GOOGLE_API_KEY）
 # - 开启时：使用兼容 Gemini REST 路径的国内中转
 # - BASE URL 填服务根地址或 API 根地址，不要填完整 generateContent 路径
 

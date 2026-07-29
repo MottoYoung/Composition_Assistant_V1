@@ -10,6 +10,7 @@ import json
 import time
 import os
 import base64
+import sys
 from pathlib import Path
 from datetime import datetime
 from dataclasses import dataclass, field, asdict
@@ -19,15 +20,16 @@ from google import genai
 from google.genai import types
 from PIL import Image
 
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from gemini_enterprise import create_enterprise_client
+
 from prompts_config import (
     ParallelPromptSet, ModelConfig, CompositionRequest,
     generate_composition_requests, load_config
 )
-
-
-# ==================== 配置 ==================== #
-# 【Gemini官方API配置】
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 
 
 # MODEL_NAME = "gemini-2.5-flash-image"
@@ -77,13 +79,8 @@ class ParallelRunResult:
 
 
 def init_client() -> genai.Client:
-    """初始化 Gemini 客户端"""
-    if not GEMINI_API_KEY:
-        raise ValueError(
-            "请设置 GEMINI_API_KEY 环境变量\n"
-            "官方API获取: https://aistudio.google.com/app/apikey"
-        )
-    return genai.Client(api_key=GEMINI_API_KEY)
+    """初始化 Gemini Enterprise Agent Platform 客户端。"""
+    return create_enterprise_client()
 
 
 def _parse_json_from_text(text: str) -> dict | None:

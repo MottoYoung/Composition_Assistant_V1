@@ -87,6 +87,18 @@ flowchart LR
 
 详细说明见 [backend/README.md](./backend/README.md)。
 
+首次运行前，从 [`.env.example`](./.env.example) 创建本地 `.env` 并注入当前 shell，或直接设置环境变量：
+
+```bash
+cp .env.example .env
+set -a && source .env && set +a
+# 也可以分别 export：
+export GOOGLE_CLOUD_PROJECT=picgen-503700
+export GOOGLE_API_KEY=replace-with-agent-platform-api-key
+```
+
+`GOOGLE_API_KEY` 必须是在该 Google Cloud 项目中创建的标准 API Key；`.env` 已被 Git 忽略。Gemini 官方调用使用 Enterprise Agent Platform v1，项目 ID 仅用于本地校验和日志，绝不传入 SDK Client。
+
 如果要切换到 Qwen、OpenRouter 或混合 provider，请修改 `backend/config.py` 中的：
 
 - `STAGE0_PROVIDER`

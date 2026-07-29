@@ -12,6 +12,7 @@ import json
 import time
 import os
 import re
+import sys
 from pathlib import Path
 from datetime import datetime
 from dataclasses import dataclass, field, asdict
@@ -21,14 +22,17 @@ from google import genai
 from google.genai import types
 from PIL import Image
 
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from gemini_enterprise import create_enterprise_client
+
 from prompts_config import (
     PromptConfig, ModelConfig, TestCase,
     generate_test_matrix, PROMPT_VERSIONS, MODEL_CONFIGS
 )
 
-
-# ==================== 配置 ==================== #
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "AIzaSyC_KWWzdi39-TDTOhNRMZmlvFj8IwwH9u4")
 
 # 纯文本输出，使用 flash 模型（无需图像生成）
 MODEL_NAME = "gemini-2.5-flash"
@@ -78,15 +82,8 @@ class AggregatedResult:
 
 
 def init_client() -> genai.Client:
-    """初始化 Gemini 官方 API 客户端"""
-    if not GEMINI_API_KEY:
-        raise ValueError(
-            "请设置 GEMINI_API_KEY 环境变量\n"
-            "获取方式: https://aistudio.google.com/app/apikey"
-        )
-    client = genai.Client(api_key=GEMINI_API_KEY)
-    print("📡 使用Gemini官方API")
-    return client
+    """初始化 Gemini Enterprise Agent Platform 客户端。"""
+    return create_enterprise_client()
 
 
 def _parse_json_from_text(text: str) -> Optional[dict]:

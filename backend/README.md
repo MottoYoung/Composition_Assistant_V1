@@ -219,10 +219,15 @@ pip install -r requirements.txt
 当前 `config.py` 默认使用 Gemini provider，最少需要：
 
 ```bash
-export GEMINI_API_KEY=your_gemini_key （服务器上有）
+export GOOGLE_CLOUD_PROJECT=picgen-503700
+export GOOGLE_API_KEY=replace-with-agent-platform-api-key
 ```
 
-如果使用官方 Gemini，服务器上的代理相关配置为：
+请在目标 Google Cloud 项目启用 Gemini Enterprise Agent Platform API，并在同一项目的“API 和服务 > 凭据”创建标准 API Key。后端会以 `enterprise=True` 和 API `v1` 初始化 SDK；`GOOGLE_CLOUD_PROJECT` 仅用于配置校验和日志，不会传给 Client，因此不会触发 API Key 与 project/location 冲突。`.env` 已被 Git 忽略，可参考仓库根目录的 [`.env.example`](../.env.example)。
+
+如暂时保留旧变量，`GEMINI_API_KEY` 会被兼容读取并打印迁移提示，但请求仍走 Enterprise Agent Platform，不会回退到 AI Studio。
+
+官方 Enterprise Agent Platform 调用可选使用本地网络代理：
 
 - `USE_GEMINI_PROXY = True`
 - `GEMINI_PROXY_URL = "http://127.0.0.1:11087"`
@@ -278,7 +283,8 @@ STAGE2_PROVIDER = "openrouter"
 然后注入两个服务所需的 key：
 
 ```bash
-export GEMINI_API_KEY=your_gemini_key
+export GOOGLE_CLOUD_PROJECT=picgen-503700
+export GOOGLE_API_KEY=replace-with-agent-platform-api-key
 export OPENROUTER_API_KEY=your_openrouter_key （服务器上有）
 ```
 
@@ -306,7 +312,8 @@ STAGE2_PROVIDER = "gemini"
 
 ```bash
 export DASHSCOPE_API_KEY=your_dashscope_key
-export GEMINI_API_KEY=your_gemini_key
+export GOOGLE_CLOUD_PROJECT=picgen-503700
+export GOOGLE_API_KEY=replace-with-agent-platform-api-key
 ```
 
 ## 常用配置
@@ -323,14 +330,17 @@ export GEMINI_API_KEY=your_gemini_key
 - OpenRouter Stage 2：`OPENROUTER_STAGE2_MODEL`、`USE_OPENROUTER_PROXY`、`OPENROUTER_PROXY_URL`
 - Qwen 图像侧限速：`IMAGE_MAX_RATE`
 
-环境变量仅用于注入敏感 key：
+环境变量仅用于注入敏感 key（官方 Gemini 使用 Enterprise Agent Platform）：
 
 ```bash
-export GEMINI_API_KEY=your_gemini_key
+export GOOGLE_CLOUD_PROJECT=picgen-503700
+export GOOGLE_API_KEY=replace-with-agent-platform-api-key
 export GEMINI_DOMESTIC_API_KEY=your_domestic_key
 export DASHSCOPE_API_KEY=your_dashscope_key
 export OPENROUTER_API_KEY=your_openrouter_key
 ```
+
+计费确认：启动日志应显示 `Gemini Enterprise Agent Platform 模式启用 [project=...]`，且 Cloud Console 中该 API Key 必须属于同一项目。最终费用归属以该 API Key 所在项目的 Cloud Billing 报表与 API 指标为准。
 
 ## 运行
 

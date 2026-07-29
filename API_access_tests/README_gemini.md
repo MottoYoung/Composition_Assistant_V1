@@ -13,21 +13,22 @@
 ### 1. 安装依赖
 
 ```bash
-pip install google-genai Pillow
+pip install 'google-genai>=1.0.0' Pillow
 ```
 
 ### 2. 获取API密钥
 
-1. 访问 [Google AI Studio](https://aistudio.google.com/app/apikey)
-2. 创建或复制你的API Key
-3. 设置环境变量：
+1. 在目标 Google Cloud 项目启用 Gemini Enterprise Agent Platform API。
+2. 在“API 和服务 > 凭据”创建标准 API Key。
+3. 设置环境变量（或参考仓库根目录的 [`.env.example`](../.env.example)；`.env` 已被 Git 忽略）：
 
 ```bash
 # macOS/Linux
-export GEMINI_API_KEY="your-api-key-here"
-
-# 或者直接在代码中修改 GEMINI_API_KEY 变量
+export GOOGLE_CLOUD_PROJECT=picgen-503700
+export GOOGLE_API_KEY="replace-with-agent-platform-api-key"
 ```
+
+脚本以 `enterprise=True` 和 API `v1` 初始化 SDK，且不会同时传入 project/location；因此计费由 `GOOGLE_API_KEY` 所在 Cloud 项目决定。旧 `GEMINI_API_KEY` 仅作为兼容读取，会打印迁移提示，但不会回退 AI Studio 通道。
 
 ## 🚀 使用方法
 
@@ -141,9 +142,9 @@ image_size = "1K"       # 图片尺寸 ("1K" 或 "2K"，仅Imagen 4支持）
 
 ### 问题1: API Key错误
 ```
-ValueError: 请设置GEMINI_API_KEY环境变量
+ValueError: 请设置 GOOGLE_API_KEY
 ```
-**解决**：检查环境变量或在代码中设置API密钥
+**解决**：检查 `GOOGLE_CLOUD_PROJECT` 与 `GOOGLE_API_KEY`，并确认 Key 创建于目标 Cloud 项目。
 
 ### 问题2: 图生图不支持
 ```
@@ -159,6 +160,5 @@ ModuleNotFoundError: No module named 'google.genai'
 
 ## 📚 参考资料
 
-- [Gemini API 文档](https://ai.google.dev/gemini-api/docs?hl=zh-cn)
-- [Imagen 生成图片文档](https://ai.google.dev/gemini-api/docs/imagen?hl=zh-cn)
+- Gemini Enterprise Agent Platform API 与 Google Cloud Console
 - PhotoFramer论文提示词（需求分析文档第5.1.2节）

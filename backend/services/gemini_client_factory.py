@@ -2,7 +2,7 @@
 Gemini Client 工厂。
 
 支持两种模式：
-1. 官方 Gemini API（GEMINI_API_KEY）
+1. Gemini Enterprise Agent Platform（GOOGLE_API_KEY）
 2. 国内 Gemini 兼容中转（Authorization: Bearer + 自定义 base_url）
 """
 import os
@@ -20,6 +20,8 @@ from config import (
     GEMINI_DOMESTIC_API_VERSION,
     GEMINI_DOMESTIC_BASE_URL,
     GEMINI_PROXY_URL,
+    GOOGLE_API_KEY,
+    GOOGLE_CLOUD_PROJECT,
     USE_GEMINI_DOMESTIC_API,
     USE_GEMINI_PROXY,
 )
@@ -105,6 +107,30 @@ def _timeout_ms(timeout_seconds: float | None) -> int | None:
     return max(1, int(timeout_seconds * 1000))
 
 
+def _resolve_enterprise_api_key() -> str:
+    if GOOGLE_API_KEY:
+        return GOOGLE_API_KEY
+    if GEMINI_API_KEY:
+        print(
+            "⚠️ GEMINI_API_KEY 已弃用；请改用 GOOGLE_API_KEY。"
+            "本次仍通过 Enterprise Agent Platform v1 通道请求，不会回退到 AI Studio。",
+            flush=True,
+        )
+        return GEMINI_API_KEY
+    raise ValueError(
+        "请设置 GOOGLE_API_KEY（在目标 Google Cloud 项目创建的标准 API Key）"
+    )
+
+
+def _build_enterprise_http_options(
+    timeout_seconds: float | None = None,
+) -> types.HttpOptions:
+    return types.HttpOptions(
+        api_version="v1",
+        timeout=_timeout_ms(timeout_seconds),
+    )
+
+
 def _build_domestic_http_options(timeout_seconds: float | None = None) -> types.HttpOptions:
     return types.HttpOptions(
         base_url=_normalize_base_url(GEMINI_DOMESTIC_BASE_URL),
@@ -154,18 +180,23 @@ def create_gemini_client(timeout_seconds: float | None = None) -> genai.Client:
         )
         return client
 
-    if not GEMINI_API_KEY:
-        raise ValueError("请设置 GEMINI_API_KEY 环境变量")
+    if not GOOGLE_CLOUD_PROJECT:
+        raise ValueError(
+            "请设置 GOOGLE_CLOUD_PROJECT，用于校验当前 API Key 的目标计费项目"
+        )
+    api_key = _resolve_enterprise_api_key()
     print(
-        "🔐 Gemini 官方模式启用 "
-        f"[api_key={_mask_token(GEMINI_API_KEY)}] "
+        "🔐 Gemini Enterprise Agent Platform 模式启用 "
+        f"[project={GOOGLE_CLOUD_PROJECT}] "
+        f"[api_key={_mask_token(api_key)}] "
         f"[local_proxy={_mask_proxy(GEMINI_PROXY_URL) if proxy_enabled else '<disabled>'}]",
         flush=True,
     )
     with _with_gemini_proxy_env():
         return genai.Client(
-            api_key=GEMINI_API_KEY,
-            http_options=types.HttpOptions(timeout=_timeout_ms(timeout_seconds)),
+            enterprise=True,
+            api_key=api_key,
+            http_options=_build_enterprise_http_options(timeout_seconds),
         )
 
 
@@ -177,7 +208,7 @@ def describe_gemini_backend() -> str:
         base = GEMINI_DOMESTIC_BASE_URL.strip() if GEMINI_DOMESTIC_BASE_URL else "<missing>"
         version = GEMINI_DOMESTIC_API_VERSION or "v1beta"
         return f"domestic-proxy {base} [{version}]{proxy_suffix}"
-    return f"official Gemini API{proxy_suffix}"
+    return f"Gemini Enterprise Agent Platform v1{proxy_suffix}"
 
 
 def _recv_until(sock: socket.socket, marker: bytes, limit: int = 8192) -> bytes:

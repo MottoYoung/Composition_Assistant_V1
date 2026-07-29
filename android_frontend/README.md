@@ -235,8 +235,9 @@ const val AI_COMPOSITION_URL = "http://192.168.x.x:8100/"
 ```bash
 cd ../backend
 pip install -r requirements.txt
-# 当前本地后端默认使用官方 Gemini
-export GEMINI_API_KEY=your_gemini_key
+# 当前本地后端默认使用 Gemini Enterprise Agent Platform
+export GOOGLE_CLOUD_PROJECT=picgen-503700
+export GOOGLE_API_KEY=replace-with-agent-platform-api-key
 uvicorn main:app --host 0.0.0.0 --port 8100 --reload
 ```
 

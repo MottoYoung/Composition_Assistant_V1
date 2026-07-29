@@ -88,9 +88,12 @@ results/
 ## ⚙️ 环境配置
 
 ```bash
-pip install google-genai pillow
-export GEMINI_API_KEY="your-api-key"
+pip install 'google-genai>=1.0.0' pillow
+export GOOGLE_CLOUD_PROJECT=picgen-503700
+export GOOGLE_API_KEY="replace-with-agent-platform-api-key"
 ```
+
+请在 `GOOGLE_CLOUD_PROJECT` 指定的项目中创建标准 API Key；测试脚本通过 Enterprise Agent Platform v1 调用，不向 Client 传入 project/location。旧的 `GEMINI_API_KEY` 仅作兼容读取，并会打印迁移提示；`.env` 已被 Git 忽略，可参考仓库根目录 [`.env.example`](../.env.example)。
 
 `pyyaml` 现在不是必需依赖；未安装时会使用内置的简化 YAML 解析器来读取当前这套 `config.yaml`。
 
