@@ -1,83 +1,36 @@
 package com.photoframer.utils
 
-import androidx.camera.core.CameraInfo
 import kotlin.math.abs
-
-data class CameraZoomPreset(
-    val lensIndex: Int,
-    val label: String,
-    val effectiveZoomRatio: Float
-)
+import kotlin.math.pow
 
 object CameraZoomController {
     private const val SNAP_TOLERANCE_RATIO = 0.12f
     private const val MIN_SNAP_DISTANCE = 0.08f
+    private const val WHEEL_PIXELS_PER_ZOOM_STOP = 180f
 
-    fun buildPresets(indexedLenses: List<Pair<Int, CameraLensOption>>): List<CameraZoomPreset> {
-        return indexedLenses
-            .map { (index, lens) ->
-                CameraZoomPreset(
-                    lensIndex = index,
-                    label = lens.displayName,
-                    effectiveZoomRatio = lens.targetZoomRatio ?: 1f
-                )
-            }
-            .sortedBy { it.effectiveZoomRatio }
-    }
-
-    fun effectiveZoomRatio(lens: CameraLensOption?, rawZoomRatio: Float): Float {
-        return (lens?.targetZoomRatio ?: 1f) * rawZoomRatio
-    }
-
-    fun effectiveZoomRangeForLens(
-        lens: CameraLensOption?,
-        cameraInfo: CameraInfo?
-    ): ClosedFloatingPointRange<Float> {
-        val baseZoom = lens?.targetZoomRatio?.takeIf { it > 0f } ?: 1f
-        val zoomState = cameraInfo?.zoomState?.value
-        val minEffectiveZoom = baseZoom * (zoomState?.minZoomRatio ?: 1f)
-        val maxEffectiveZoom = baseZoom * (zoomState?.maxZoomRatio ?: 8f)
-        return minOf(minEffectiveZoom, maxEffectiveZoom)..maxOf(minEffectiveZoom, maxEffectiveZoom)
-    }
-
-    fun chooseLensForZoom(
-        presets: List<CameraZoomPreset>,
-        targetEffectiveZoom: Float
-    ): CameraZoomPreset? {
-        if (presets.isEmpty()) return null
-
-        return presets
-            .filter { it.effectiveZoomRatio <= targetEffectiveZoom + 0.001f }
-            .maxByOrNull { it.effectiveZoomRatio }
-            ?: presets.first()
-    }
-
-    fun computeRawZoomRatio(
-        lens: CameraLensOption?,
-        targetEffectiveZoom: Float,
-        cameraInfo: CameraInfo?
+    fun snapToOpticalStop(
+        targetZoomRatio: Float,
+        opticalStops: List<ZoomStop>
     ): Float {
-        val baseZoom = lens?.targetZoomRatio?.takeIf { it > 0f } ?: 1f
-        val targetRawZoom = targetEffectiveZoom / baseZoom
-        val zoomState = cameraInfo?.zoomState?.value
-        val minZoom = zoomState?.minZoomRatio ?: 1f
-        val maxZoom = zoomState?.maxZoomRatio ?: 8f
-        return targetRawZoom.coerceIn(minZoom, maxZoom)
-    }
-
-    fun snapZoomRatio(
-        targetEffectiveZoom: Float,
-        presets: List<CameraZoomPreset>
-    ): Float {
-        val nearest = presets.minByOrNull { abs(it.effectiveZoomRatio - targetEffectiveZoom) }
-            ?: return targetEffectiveZoom
-        val distance = abs(nearest.effectiveZoomRatio - targetEffectiveZoom)
-        val tolerance = maxOf(nearest.effectiveZoomRatio * SNAP_TOLERANCE_RATIO, MIN_SNAP_DISTANCE)
+        val nearest = opticalStops.minByOrNull { abs(it.zoomRatio - targetZoomRatio) }
+            ?: return targetZoomRatio
+        val distance = abs(nearest.zoomRatio - targetZoomRatio)
+        val tolerance = maxOf(nearest.zoomRatio * SNAP_TOLERANCE_RATIO, MIN_SNAP_DISTANCE)
         return if (distance <= tolerance) {
-            nearest.effectiveZoomRatio
+            nearest.zoomRatio
         } else {
-            targetEffectiveZoom
+            targetZoomRatio
         }
+    }
+
+    fun zoomRatioFromWheelDrag(
+        startZoomRatio: Float,
+        dragAmountPx: Float,
+        range: ClosedFloatingPointRange<Float>
+    ): Float {
+        val zoomStops = -dragAmountPx / WHEEL_PIXELS_PER_ZOOM_STOP
+        return (startZoomRatio * 2.0.pow(zoomStops.toDouble()).toFloat())
+            .coerceIn(range.start, range.endInclusive)
     }
 
     fun formatZoomRatio(zoomRatio: Float): String {

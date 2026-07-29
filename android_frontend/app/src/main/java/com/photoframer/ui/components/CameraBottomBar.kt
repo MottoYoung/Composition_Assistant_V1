@@ -67,11 +67,6 @@ enum class CameraMode(val displayName: String) {
 fun CameraBottomBar(
     currentMode: CameraMode,
     visualStyle: CameraVisualStyle,
-    zoomUiState: CameraZoomUiState,
-    onZoomPresetClick: (Int) -> Unit,
-    onZoomRulerReveal: () -> Unit,
-    onZoomRulerDrag: (Float) -> Unit,
-    onZoomRulerDragEnd: () -> Unit,
     onShutterClick: () -> Unit,
     lastPhotoThumbnail: Bitmap? = null,
     isGalleryAvailable: Boolean = false,
@@ -95,15 +90,6 @@ fun CameraBottomBar(
             .padding(top = 10.dp, bottom = 24.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        CameraZoomControls(
-            state = zoomUiState,
-            onPresetClick = onZoomPresetClick,
-            onRulerReveal = onZoomRulerReveal,
-            onRulerDrag = onZoomRulerDrag,
-            onRulerDragEnd = onZoomRulerDragEnd,
-            modifier = Modifier.padding(bottom = 10.dp)
-        )
-
         Text(
             text = currentMode.displayName,
             color = titleColor,

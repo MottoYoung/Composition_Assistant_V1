@@ -5,7 +5,6 @@ import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CameraManager
 import android.os.Build
 import androidx.camera.camera2.interop.Camera2CameraInfo
-import androidx.camera.camera2.interop.ExperimentalCamera2Interop
 import androidx.camera.core.CameraSelector
 import java.util.Locale
 import kotlin.math.roundToInt
@@ -54,6 +53,35 @@ object CameraLensManager {
             continuousRange = continuousRange,
             vendorLensRatios = opticalZoomRatios(logicalCameraId, physicalLenses)
         )
+    }
+
+    fun getPhysicalLensMetadata(
+        context: Context,
+        logicalCameraId: String
+    ): List<PhysicalLensMetadata> {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P) return emptyList()
+
+        val cameraManager = context.getSystemService(Context.CAMERA_SERVICE) as? CameraManager
+            ?: return emptyList()
+        val logicalCharacteristics = runCatching {
+            cameraManager.getCameraCharacteristics(logicalCameraId)
+        }.getOrNull() ?: return emptyList()
+        val capabilities = logicalCharacteristics[CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES]
+            ?: return emptyList()
+        if (!capabilities.contains(CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES_LOGICAL_MULTI_CAMERA)) {
+            return emptyList()
+        }
+
+        return logicalCharacteristics.physicalCameraIds.mapNotNull { physicalCameraId ->
+            val focalLength = runCatching {
+                cameraManager.getCameraCharacteristics(physicalCameraId).focalLengthOrNull()
+            }.getOrNull() ?: return@mapNotNull null
+            PhysicalLensMetadata(
+                logicalCameraId = logicalCameraId,
+                physicalCameraId = physicalCameraId,
+                focalLength = focalLength
+            )
+        }
     }
 
     fun getAvailableLenses(context: Context): List<CameraLensOption> {
@@ -119,23 +147,15 @@ object CameraLensManager {
             .removeDuplicateBackLensLabels()
     }
 
-    @OptIn(ExperimentalCamera2Interop::class)
-    fun buildCameraSelector(
-        lens: CameraLensOption,
-        bindPhysicalCamera: Boolean = true
-    ): CameraSelector {
-        val builder = CameraSelector.Builder()
+    fun buildCameraSelector(lens: CameraLensOption): CameraSelector {
+        return CameraSelector.Builder()
             .requireLensFacing(lens.lensFacing)
             .addCameraFilter { cameraInfos ->
                 cameraInfos.filter { cameraInfo ->
                     Camera2CameraInfo.from(cameraInfo).cameraId == lens.logicalCameraId
                 }
             }
-
-        if (bindPhysicalCamera) {
-            lens.physicalCameraId?.let(builder::setPhysicalCameraId)
-        }
-        return builder.build()
+            .build()
     }
 
     private fun List<RawLensOption>.toLensOptions(): List<CameraLensOption> {
