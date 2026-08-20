@@ -22,7 +22,7 @@ Assistant_v1 是一个面向“辅助拍摄 / 构图引导”的实验项目：�
 
 ARCore 基础准确性验证由独立仓库 `ARCore_Validation_App` 承担。该工具通过 `ArCoreValidationActivity` 提供受控动作流程、实时状态提示和逐帧 CSV 日志，用来单独检查方向、尺度、漂移、跳变和前后台恢复。现有日志只能说明部分方向与内部连续性；在加入标定板、动捕等独立参照并完成正式实验前，不应宣称 ARCore 位姿准确可靠。
 
-## 仓库里有什么
+## 标准交付内容
 
 ```text
 Composition_Assistant_V1
@@ -32,7 +32,7 @@ Composition_Assistant_V1
 └── test_images            # 测试图片
 ```
 
-`Gemini_prompt_tests` 中包含早期提示词实验、生成图片和测试结果，体积较大，已移出当前仓库并单独归档。它不是 Android 客户端或后端的运行依赖，对外交付项目时无需包含；只有在追溯早期 Prompt 实验时才需要从独立归档中恢复。
+`Gemini_prompt_tests` 中包含早期提示词实验、生成图片和测试结果，体积较大，已从 V1 标准交付目录移出并单独归档。它不是 Android 客户端或后端的运行依赖，对外交付项目时无需包含；只有在追溯早期 Prompt 实验时才需要从独立归档中恢复。
 
 ## 核心能力
 
