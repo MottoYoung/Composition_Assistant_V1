@@ -29,9 +29,10 @@ Composition_Assistant_V1
 ├── android_frontend       # Android 客户端
 ├── backend                # 三阶段后端主干
 ├── API_access_tests       # 接口侧实验/验证脚本
-├── Gemini_prompt_tests    # 早期 Prompt 试验记录，不确定可用性
 └── test_images            # 测试图片
 ```
+
+`Gemini_prompt_tests` 中包含早期提示词实验、生成图片和测试结果，体积较大，已移出当前仓库并单独归档。它不是 Android 客户端或后端的运行依赖，对外交付项目时无需包含；只有在追溯早期 Prompt 实验时才需要从独立归档中恢复。
 
 ## 核心能力
 
@@ -197,4 +198,4 @@ xray代理在服务器 端口为11087，使用gemini、openrouter 模型需要�
 
 - Android 端详细说明：[android_frontend/README.md](./android_frontend/README.md)
 - 后端详细说明：[backend/README.md](./backend/README.md)
-- ~~Prompt 实验说明（早期实验）：[Gemini_prompt_tests/README.md](./Gemini_prompt_tests/README.md)~~
+- 早期 Gemini Prompt 实验已移出仓库并单独归档，不在当前交付范围内
