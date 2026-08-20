@@ -1,24 +1,26 @@
-# Composition_assistant_v1
+# Composition Assistant V1
 
 Assistant_v1 是一个面向“辅助拍摄 / 构图引导”的实验项目：用户先拍一张当前场景图，后端给出多个可行构图方案与参考图，Android 客户端再根据这些目标构图做实时闭环引导，帮助用户把手机取景调整到更接近目标效果。
 
-项目内部的应用名仍以 PhotoFramer 为主，当前仓库最重要的两条主线是：
+项目内部的应用名仍以 PhotoFramer 为主，当前仓库主要由两部分组成：
 
 - `android_frontend`：Android 前端，负责相机预览、拍照、候选展示、实时引导与最终拍摄
 - `backend`：三阶段后端主干，负责拍摄方向/构图候选筛选、构图分析与参考图生成
 
 ## 分支定位（重要）
 
-本仓库当前有两条边界不同的 Android 技术路线：
+截至 2026-08-20，项目代码主要看两个长期分支，对应稳定基线和仍在验证的 ARCore 路线：
 
 | 分支 | 定位 | 已实现 | 尚未证明 |
 | --- | --- | --- | --- |
-| `main` | 基于视觉的主线 | CameraX 预览/拍照，以及 OpenCV 特征匹配、单应分析等视觉闭环引导 | ARCore 没有真正接入正式相机管线，不能把 main 描述为基于 AR 位姿的引导系统 |
-| `codex/feat-camera2-arcore-shared-pipeline` | 实验性 AR 分支 | 将正式相机管线重构为 Camera2 + ARCore SharedCamera，在同一相机会话中完成预览、分析帧、拍照，并持续读取屏幕坐标系下的 6DoF 位姿 | 只验证了管线可运行和位姿可读取，未探索目标位姿如何获得，尚未用独立真值充分验证 ARCore 的平移尺度、旋转误差、漂移和失效恢复 |
+| `main` | 稳定集成基线 | CameraX 预览/拍照；OpenCV、ML Kit、特征匹配与单应分析驱动的视觉闭环；三阶段 AI 后端默认通过 Gemini Enterprise Agent Platform v1 调用 | ARCore 未接入正式相机管线，不能把 `main` 描述为基于 6DoF 位姿的引导系统 |
+| `codex/feat-arcore-semantic-guidance` | 实验性 ARCore 语义引导 | Camera2 + ARCore SharedCamera；相机时间轴同步的 6DoF 与深度；参考图定位、稀疏地图、目标锚点、局部 BA；人像/风景分流的主体约束；由最终参考图驱动的三阶段闭环 | 尚未合并 `main`；仍需在更多真机和场景中验证目标定位成功率、尺度与旋转误差、长期漂移、弱纹理/大透视鲁棒性及失效恢复 |
 
-因此，`main` 仍代表当前基于视觉的应用基线；AR 分支提供的是后续“基于目标位姿计算残差并引导用户移动”所需的基础工具，不代表位姿引导已经达到可用精度。
+原 `codex/feat-camera2-arcore-shared-pipeline` 的 Camera2/SharedCamera 工作已经包含在 `codex/feat-arcore-semantic-guidance` 中，因此不再单独保留。`mty`、`haorenyu` 也已从本地删除；远端若仍显示同名分支，只代表尚未清理的历史引用，不是当前开发线。
 
-ARCore 准确性验证由独立仓库 `ARCore_Validation_App` 承担。该工具通过 `ArCoreValidationActivity` 提供受控动作流程、实时状态提示和逐帧 CSV 日志，用来单独检查方向、尺度、漂移、跳变和前后台恢复。现有日志只能说明部分方向与内部连续性；在加入标定板、动捕等独立参照并完成正式实验前，不应宣称 ARCore 位姿准确可靠。
+因此，`main` 仍代表当前可稳定集成的视觉基线；ARCore 分支已经形成实验性的目标位姿闭环，但不代表它已达到可交付精度。
+
+ARCore 基础准确性验证由独立仓库 `ARCore_Validation_App` 承担。该工具通过 `ArCoreValidationActivity` 提供受控动作流程、实时状态提示和逐帧 CSV 日志，用来单独检查方向、尺度、漂移、跳变和前后台恢复。现有日志只能说明部分方向与内部连续性；在加入标定板、动捕等独立参照并完成正式实验前，不应宣称 ARCore 位姿准确可靠。
 
 ## 仓库里有什么
 
@@ -27,7 +29,7 @@ Composition_Assistant_V1
 ├── android_frontend       # Android 客户端
 ├── backend                # 三阶段后端主干
 ├── API_access_tests       # 接口侧实验/验证脚本
-├── Gemini_prompt_tests    # 早起Prompt 试验记录，不确定可用性
+├── Gemini_prompt_tests    # 早期 Prompt 试验记录，不确定可用性
 └── test_images            # 测试图片
 ```
 
@@ -37,6 +39,7 @@ Composition_Assistant_V1
 - 多候选方案输出：每个候选返回步骤化建议与参考图
 - 流式结果返回：后端支持 SSE，将候选逐个推送给前端
 - 实时本地验证：main 前端以 OpenCV、ML Kit 和图像几何分析做闭环引导
+- 实验性 ARCore 引导：功能分支融合 6DoF、深度、语义约束与参考图定位，估计目标机位并输出移动提示
 - 画面内构图：支持基于裁切推荐的“画面内重构图”模式
 - Provider 组合：Stage 0 / Stage 1 可在 Qwen 与 Gemini 之间切换，Stage 2 还支持 OpenRouter
 
@@ -44,7 +47,7 @@ Composition_Assistant_V1
 
 ```mermaid
 flowchart LR
-    A["Android CameraX 取景"] --> B["拍照并预处理"]
+    A["Android main：CameraX 取景"] --> B["拍照并预处理"]
     B --> C["后端 composition_analyze / composition_analyze_stream"]
     C --> D["Stage 0 软预筛 / 摄影眼方向选择"]
     D --> E["Stage 1 构图分析"]
@@ -65,12 +68,12 @@ flowchart LR
 ### Android 端
 
 - Kotlin + Jetpack Compose
-- CameraX（`main`）；Camera2 + ARCore SharedCamera（实验性 AR 分支）
+- CameraX（`main`）；Camera2 + ARCore SharedCamera（`codex/feat-arcore-semantic-guidance`）
 - Lifecycle + ViewModel + StateFlow
 - Retrofit + OkHttp
 - OpenCV
 - ML Kit Object Detection
-- ARCore（仅实验性 AR 分支完成正式相机管线接入，准确性尚未验证）
+- ARCore（仅实验分支接入正式相机管线与目标位姿闭环，准确性尚未充分验证）
 
 ### 后端
 
@@ -184,8 +187,8 @@ xray代理在服务器 端口为11087，使用gemini、openrouter 模型需要�
 - 后端主干现在位于 `backend/`
 - 后端实际运行架构是 Stage 0 / Stage 1 / Stage 2 三阶段流水线；当前摄影眼模式默认开启 Stage 0，以生成运行时拍摄方向任务
 - Android 前端默认优先走流式接口，流式失败后再回退普通接口
-- `main` 的有效实时引导仍以视觉匹配和图像几何分析为基础；其中出现 ARCore 依赖或实验代码，不等于 AR 已真正接入正式相机管线
-- `codex/feat-camera2-arcore-shared-pipeline` 仅作为本地实验分支保留，当前不代表 main，也尚未推送或创建 PR
+- `main` 的有效实时引导仍以视觉匹配和图像几何分析为基础；其中出现 ARCore 依赖或历史实验代码，不等于 AR 已真正接入正式相机管线
+- 当前唯一保留的 ARCore 功能分支是 `codex/feat-arcore-semantic-guidance`；它已经吸收原 SharedCamera 分支的工作，但尚未合并到 `main`
 - 画面内构图服务当前是外部 URL，不在本仓库内
 - 后端 API key 从环境变量读取；provider、模型、代理、超时等运行配置主要在 `backend/config.py`
 - Android 端当前声明了 Coil 依赖，但主干实现的核心图片显示并不依赖它
