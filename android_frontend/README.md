@@ -1,17 +1,10 @@
-# PhotoFramer Android 前端
+# Composition Assistant Android 前端
 
-`android_frontend` 是 PhotoFramer 的 Android 客户端。它负责相机预览、拍照、把图片发给后端获取候选构图方案，并在用户选定一个方案后利用本地视觉验证链做实时引导，直到用户完成拍摄。
+`android_frontend` 是 Composition Assistant 的 Android 客户端。它负责相机预览、拍照、把图片发给后端获取候选构图方案，并在用户选定一个方案后利用本地视觉验证链做实时引导，直到用户完成拍摄。
 
-## main 与实验性 AR 分支
+## 相机与引导
 
-请先区分两条路线：
-
-- `main` 是当前基于视觉的应用主线：使用 CameraX 提供相机能力，实时引导主要依赖 OpenCV 特征匹配、单应分析和其他图像信号。main 中的 ARCore 依赖、接口或历史实验代码不构成一次真正的 Camera2/ARCore 联合接入。
-- `codex/feat-camera2-arcore-shared-pipeline` 是实验性 AR 分支：它把正式相机管线重构为 Camera2 + ARCore `SharedCamera`，让预览、CPU 分析帧、JPEG 拍照、缩放/闪光灯和 ARCore 6DoF 共用同一相机会话，并在界面显示实时位姿。
-
-该 AR 分支为后续基于位姿的移动引导提供了相机与位姿基础设施，但当前只验证了预览稳定、能够进入 `TRACKING`、位姿连续输出、拍照和生命周期恢复。ARCore 位姿相对物理真值的准确性尚未充分验证，不能仅凭 `TRACKING`、实时数字变化或 ARCore 内部回位结果宣称精度可靠。
-
-准确性实验使用独立仓库 `ARCore_Validation_App`。它的入口为 `ArCoreValidationActivity`，能够强制受控动作顺序、显示跟踪/门控状态并记录逐帧 CSV，专门用于分析方向、米制尺度、漂移、跳变和恢复。该工具仍需接入标定板、动捕等独立参照，才能形成正式准确性结论。
+本文对应 `Composition_Assistant_V1` 的 Android 客户端，使用 CameraX 提供相机能力，实时引导主要依赖 OpenCV 特征匹配、单应分析和其他图像信号。
 
 ## 这一端负责什么
 
@@ -25,7 +18,7 @@ Android 端的职责不是“只展示后端结果”，而是完整承接下面
 6. 结合 OpenCV / ML Kit 和图像几何信号实时判断当前取景是否已经接近目标构图
 7. 完成后引导用户拍摄最终照片
 
-## main 当前主要能力
+## 当前主要能力
 
 - 全屏相机预览
 - AI 构图分析
@@ -56,19 +49,6 @@ CameraX ImageAnalysis
   -> StepValidator
   -> StepValidationResult
   -> GuidanceOverlay / TopGuidanceBar
-```
-
-实验性 AR 分支的相机与位姿链是：
-
-```text
-Camera2 + ARCore SharedCamera
-  -> 同一 CaptureSession
-     -> ARCore GPU 相机纹理：实时预览
-     -> Frame.acquireCameraImage()：CPU 分析帧
-     -> JPEG ImageReader：拍照
-     -> displayOrientedPose：屏幕坐标系 6DoF
-  -> CameraPoseSample
-  -> 位姿显示 / 后续位姿残差引导
 ```
 
 ## UI 状态流
@@ -111,12 +91,12 @@ android_frontend
 │       │   │   ├── screens
 │       │   │   ├── components
 │       │   │   ├── state
+│       │   │   ├── preview
 │       │   │   └── theme
 │       │   ├── viewmodel
 │       │   ├── vision
 │       │   ├── inframe
 │       │   ├── guidance
-│       │   ├── arcore
 │       │   └── utils
 │       └── res
 ├── gradle
@@ -156,11 +136,9 @@ android_frontend
 
 ### 相机与实时处理
 
-- CameraX（`main`）
-- Camera2 + ARCore SharedCamera（实验性 AR 分支）
+- CameraX
 - OpenCV
 - ML Kit Object Detection
-- ARCore（实验性接入，准确性尚未充分验证）
 
 ### 网络
 
@@ -179,8 +157,6 @@ android_frontend
 - JDK 11
 - Android 8.0 及以上设备或模拟器
 - 相机权限
-
-如果你要运行实验性 AR 分支或准确性验证 App，必须使用支持 ARCore 的真机，Android 需要在自带应用市场安装 Google Play Services for AR。模拟器不能代表真实 VIO 表现。
 
 ## API 配置
 
@@ -285,7 +261,7 @@ uvicorn main:app --host 0.0.0.0 --port 8100 --reload
 - `PerceptualHashMatcher`：在匹配不稳时做兜底相似度判断
 - `ViewChangeAnalyzer`：处理视角变化动作并叠加主体锁定等信号
 
-这是 `main` 当前最值得理解的核心部分。实验性 AR 分支提供额外的 `CameraPoseSample`，但尚不能替代准确性验证。
+这条视觉验证链负责本仓库的实时引导。
 
 ## 关键设计特点
 
@@ -294,7 +270,6 @@ uvicorn main:app --host 0.0.0.0 --port 8100 --reload
 - Repository 隔离网络实现细节
 - 分析接口优先走流式，失败时再回退到普通接口
 - 实时引导默认优先走轻量 ORB，而不是重型离线匹配
-- main 不依赖 ARCore 位姿完成视觉引导；实验性 AR 分支才把 ARCore 作为相机与位姿基础设施
 
 ## 依赖补充说明
 
@@ -310,9 +285,12 @@ cd android_frontend
 ./gradlew test
 ```
 
-当前主要可见的测试位于：
+当前主要单元测试位于 `app/src/test/java/com/photoframer/`，包含：
 
-- `app/src/test/java/com/photoframer/viewmodel/CameraViewModelTest.kt`
+- `viewmodel/CameraViewModelTest.kt`、`viewmodel/CameraErrorActionTest.kt`
+- `vision/MotionStepEvaluatorsTest.kt`、`vision/ViewChangeScoringTest.kt`
+- `utils/CameraZoomControllerTest.kt`、`utils/GalleryPermissionUtilsTest.kt`
+- `ui/screens/CameraControlStateTest.kt`（以及工作区新增的 `CaptureCountdownTest.kt`）
 
 ## 常见问题
 
@@ -325,20 +303,7 @@ cd android_frontend
 - 模拟器是否用了 `10.0.2.2`
 - 真机是否和电脑同网段
 
-### 2. 为什么 ARCore 没生效
-
-如果运行的是 `main`，这不是开关或设备问题：main 的正式相机与引导管线本来就没有真正接入 ARCore SharedCamera。
-
-如果运行的是 `codex/feat-camera2-arcore-shared-pipeline` 或独立验证 App，再检查：
-
-- 设备不支持 ARCore
-- 没安装 Google Play Services for AR
-- 相机权限未授予
-- 当前环境光线、纹理或运动速度导致 ARCore 无法进入 `TRACKING`
-
-即使已经进入 `TRACKING`，也只说明 ARCore 正在输出位姿，不等于位姿精度已经通过验证。
-
-### 3. 为什么画面内构图模式不工作
+### 2. 为什么画面内构图模式不工作
 
 因为 `IN_FRAME_COMPOSITION_URL` 对应的是外部服务，不在这个仓库内。主仓库当前只包含 Android 客户端和新的三阶段主后端。
 

@@ -1,6 +1,6 @@
-# PhotoFramer Backend - Three-Stage Pipeline
+# composition_assistant 三阶段后端
 
-`backend` 是当前 PhotoFramer 的后端主干。它的实际运行架构是三阶段流水线：
+`backend` 是当前 composition_assistant 的后端主干。它的实际运行架构是三阶段流水线：
 
 - Stage 0：候选构图技术软预筛；在摄影眼模式下选择拍摄方向并生成运行时任务
 - Stage 1：构图分析、步骤生成与 `image_prompt` 产出
