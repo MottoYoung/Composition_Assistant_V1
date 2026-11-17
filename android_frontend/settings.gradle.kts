@@ -19,5 +19,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "PhotoFramer"
+rootProject.name = "composition_assistant"
 include(":app")

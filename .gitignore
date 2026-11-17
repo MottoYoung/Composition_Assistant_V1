@@ -41,7 +41,6 @@ build/
 # Gradle 缓存
 .gradle/
 */.gradle/
-gradlew.bat
 
 # Android Studio 配置
 .idea/
@@ -81,6 +80,7 @@ Thumbs.db
 # ==================== 测试输出 ==================== #
 # 覆盖新多级目录结构：图片和指令/*/results/, 纯指令/有参考图/results/ 等
 **/results/
+**/output/
 **/outputs/
 **/reports/
 
@@ -103,4 +103,3 @@ docs/
 # 测试数据（敏感） 文档
 test_data/
 docs/
-

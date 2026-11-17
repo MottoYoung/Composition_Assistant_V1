@@ -9,6 +9,7 @@ import json
 import time
 import os
 import base64
+import sys
 from pathlib import Path
 from datetime import datetime
 from dataclasses import dataclass, field, asdict
@@ -18,20 +19,24 @@ from google import genai
 from google.genai import types
 from PIL import Image
 
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from gemini_enterprise import create_enterprise_client
+
 from prompts_config import (
     PromptConfig, ModelConfig, TestCase,
     generate_test_matrix, PROMPT_VERSIONS, MODEL_CONFIGS
 )
 
 
-# ==================== 配置 ==================== #
-# 【原Gemini官方API配置】
-# GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
-
-# 【中转API配置】
-# 使用 Bearer Token 鉴权格式: Authorization: Bearer sk-xxxxxx
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "sk-MgVuquDqVte3C4PlsXoKm7wxdhcnYV0IsWYtTX5NEJbdEGQ2")  # 中转API的key，格式如 sk-xxxxxx
-GEMINI_BASE_URL = os.environ.get("GEMINI_BASE_URL", "https://yinli.one/v1beta/models/gemini-2.5-flash-image:generateContent")  # 中转API地址
+# 国内 Gemini 兼容中转（可选）：设置这两个变量时保持原自定义中转行为。
+GEMINI_DOMESTIC_API_KEY = (
+    os.environ.get("GEMINI_DOMESTIC_API_KEY", "").strip()
+    or os.environ.get("GEMINI_API_KEY", "").strip()
+)
+GEMINI_BASE_URL = os.environ.get("GEMINI_BASE_URL", "").strip()
 
 MODEL_NAME = "gemini-2.5-flash-image"
 
@@ -80,43 +85,19 @@ class AggregatedResult:
 
 
 def init_client() -> genai.Client:
-    """
-    初始化 Gemini 客户端
-    
-    支持两种模式：
-    1. 官方API：仅设置 GEMINI_API_KEY，不设置 GEMINI_BASE_URL
-    2. 中转API：同时设置 GEMINI_API_KEY 和 GEMINI_BASE_URL
-    
-    中转API使用 Bearer Token 鉴权格式: Authorization: Bearer sk-xxxxxx
-    """
-    if not GEMINI_API_KEY:
-        raise ValueError(
-            "请设置 GEMINI_API_KEY 环境变量\n"
-            "中转API格式: sk-xxxxxx\n"
-            "官方API获取: https://aistudio.google.com/app/apikey"
-        )
-    
-    # 【原Gemini官方API客户端初始化 - 已注释】
-    # return genai.Client(api_key=GEMINI_API_KEY)
-    
-    # 【中转API客户端初始化】
-    # 使用 http_options 配置自定义 base URL 和鉴权头
+    """优先使用国内中转；未配置中转时使用 Enterprise Agent Platform。"""
     if GEMINI_BASE_URL:
-        # 中转API模式：使用自定义 base URL
+        if not GEMINI_DOMESTIC_API_KEY:
+            raise ValueError("请设置 GEMINI_DOMESTIC_API_KEY 环境变量")
         client = genai.Client(
-            api_key=GEMINI_API_KEY,
+            api_key=GEMINI_DOMESTIC_API_KEY,
             http_options={
                 "base_url": GEMINI_BASE_URL,
-                # Bearer Token 鉴权由 SDK 自动处理，api_key 会被转换为 Authorization: Bearer {api_key}
             }
         )
         print(f"📡 使用中转API: {GEMINI_BASE_URL}")
-    else:
-        # 官方API模式
-        client = genai.Client(api_key=GEMINI_API_KEY)
-        print("📡 使用Gemini官方API")
-    
-    return client
+        return client
+    return create_enterprise_client()
 
 
 def run_single_test(

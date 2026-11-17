@@ -1,16 +1,17 @@
 from google import genai
 from google.genai import types
 from PIL import Image
-import os
+import sys
 from pathlib import Path
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from gemini_enterprise import create_enterprise_client
 
 
 # ================配置=================== #
-# API
-# 从环境变量读取，或直接填写
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
-
-
 # 模型
 MODEL_NAME="gemini-2.5-flash-image"
 # MODEL_NAME = "gemini-3-pro-image-preview"
@@ -122,15 +123,9 @@ PROMPT_FULL_AUTO = [
     "Improve the composition through shift, zoom-in, or viewpoint adjustment.",
 ]
 def init_client():
-    """初始化Gemini客户端"""
-    if not GEMINI_API_KEY:
-        raise ValueError(
-            "请设置GEMINI_API_KEY环境变量或在代码中填写API密钥\n"
-            "获取方式：https://aistudio.google.com/app/apikey"
-        )
-    
-    client = genai.Client(api_key=GEMINI_API_KEY)
-    print("✅ Gemini客户端初始化成功")
+    """初始化 Enterprise Agent Platform Gemini 客户端。"""
+    client = create_enterprise_client()
+    print("✅ Gemini Enterprise 客户端初始化成功")
     return client
 
 

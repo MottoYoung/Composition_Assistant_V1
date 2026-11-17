@@ -5,11 +5,11 @@ plugins {
 }
 
 android {
-    namespace = "com.photoframer"
+    namespace = "com.compositionassistant"
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "com.photoframer"
+        applicationId = "com.compositionassistant.v1"
         minSdk = 26
         targetSdk = 36
         versionCode = 1

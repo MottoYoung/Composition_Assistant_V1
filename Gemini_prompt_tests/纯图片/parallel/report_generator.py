@@ -38,13 +38,7 @@ def generate_report(
     with open(summary_path, "r", encoding="utf-8") as f:
         summary = json.load(f)
     
-    # 判断是 parallel sync 还是 batch 结果
-    is_parallel = "runs" in summary
-    
-    if is_parallel:
-        report = _generate_parallel_report(summary, result_dir)
-    else:
-        report = _generate_batch_report(summary, result_dir)
+    report = _generate_parallel_report(summary, result_dir)
     
     if output_path is None:
         output_path = result_dir / "report.md"
@@ -180,61 +174,6 @@ def _generate_parallel_report(summary: dict, result_dir: Path) -> str:
             lines.append(f"- ✓ `{tech}`")
     else:
         lines.append("*本次测试中未发现适用的构图技术*")
-    
-    return "\n".join(lines)
-
-
-def _generate_batch_report(summary: dict, result_dir: Path) -> str:
-    """生成批量测评报告"""
-    results = summary.get("results", [])
-    
-    lines = [
-        "# 批量构图测评报告",
-        "",
-        f"> 生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
-        f"> 作业名称: `{summary.get('display_name', 'N/A')}`",
-        f"> 状态: {summary.get('status', 'N/A')}",
-        "",
-        "---",
-        "",
-        "## 📊 测评概览",
-        "",
-        f"- 总技术数: {summary.get('total_techniques', 0)}",
-        f"- 成功: {summary.get('successful_techniques', 0)}",
-        f"- 适用: {summary.get('applicable_techniques', 0)}",
-        "",
-        "---",
-        "",
-        "## 📝 各技术结果",
-        "",
-    ]
-    
-    for r in results:
-        tech_id = r.get("technique_id", "unknown")
-        success = r.get("success", False)
-        status = "✅" if success else "❌"
-        applicable = r.get("is_applicable")
-        
-        lines.append(f"### {status} {tech_id}")
-        lines.append("")
-        
-        if success:
-            applicable_str = "适用" if applicable is True else ("不适用" if applicable is False else "未知")
-            lines.append(f"**适用性**: {applicable_str}")
-            
-            texts = r.get("texts", [])
-            if texts:
-                preview = texts[0][:300] + "..." if len(texts[0]) > 300 else texts[0]
-                lines.extend(["", "**输出预览:**", "```", preview, "```"])
-            
-            images = r.get("images", [])
-            if images:
-                lines.append(f"\n**生成图片数**: {len(images)}")
-        else:
-            error = r.get("error", "Unknown error")
-            lines.append(f"**错误**: {error}")
-        
-        lines.append("")
     
     return "\n".join(lines)
 

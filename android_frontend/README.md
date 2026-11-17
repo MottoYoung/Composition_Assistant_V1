@@ -1,6 +1,16 @@
-# PhotoFramer Android 前端
+# Composition Assistant Android 前端
 
-`android_frontend` 是 PhotoFramer 的 Android 客户端。它负责相机预览、拍照、把图片发给后端获取候选构图方案，并在用户选定一个方案后利用本地视觉验证链做实时引导，直到用户完成拍摄。
+`android_frontend` 是 Composition Assistant 的 Android 客户端。它负责相机预览、拍照、把图片发给后端获取候选构图方案，并在用户选定一个方案后利用本地视觉验证链做实时引导，直到用户完成拍摄。
+
+## 工程标识
+
+- 工程名 `composition_assistant`
+- Android namespace `com.compositionassistant`
+- 应用 ID `com.compositionassistant.v1`
+
+## 相机与引导
+
+本文对应 `Composition_Assistant_V1` 的 Android 客户端，使用 CameraX 提供相机能力，实时引导主要依赖 OpenCV 特征匹配、单应分析和其他图像信号。
 
 ## 这一端负责什么
 
@@ -11,7 +21,7 @@ Android 端的职责不是“只展示后端结果”，而是完整承接下面
 3. 请求后端分析当前场景
 4. 展示多个候选构图方案
 5. 让用户选中某个方案进入引导
-6. 结合 OpenCV / ML Kit / ARCore 或设备姿态信息实时判断当前取景是否已经接近目标构图
+6. 结合 OpenCV / ML Kit 和图像几何信号实时判断当前取景是否已经接近目标构图
 7. 完成后引导用户拍摄最终照片
 
 ## 当前主要能力
@@ -23,7 +33,6 @@ Android 端的职责不是“只展示后端结果”，而是完整承接下面
 - 实时步骤式引导
 - 参考图缩略图展示
 - 镜头切换、缩放、闪光灯、网格、倒计时、连拍
-- 可选 ARCore 机位辅助
 
 ## 架构总览
 
@@ -52,7 +61,7 @@ CameraX ImageAnalysis
 
 当前 UI 主状态定义在：
 
-- `app/src/main/java/com/photoframer/ui/state/CameraUiState.kt`
+- `app/src/main/java/com/compositionassistant/ui/state/CameraUiState.kt`
 
 主要状态包括：
 
@@ -79,7 +88,7 @@ android_frontend
 │   ├── build.gradle.kts
 │   └── src/main
 │       ├── AndroidManifest.xml
-│       ├── java/com/photoframer
+│       ├── java/com/compositionassistant
 │       │   ├── MainActivity.kt
 │       │   ├── data
 │       │   │   ├── api
@@ -88,12 +97,12 @@ android_frontend
 │       │   │   ├── screens
 │       │   │   ├── components
 │       │   │   ├── state
+│       │   │   ├── preview
 │       │   │   └── theme
 │       │   ├── viewmodel
 │       │   ├── vision
 │       │   ├── inframe
 │       │   ├── guidance
-│       │   ├── arcore
 │       │   └── utils
 │       └── res
 ├── gradle
@@ -105,14 +114,14 @@ android_frontend
 
 如果你第一次看这部分代码，建议先读：
 
-1. `app/src/main/java/com/photoframer/MainActivity.kt`
-2. `app/src/main/java/com/photoframer/ui/state/CameraUiState.kt`
-3. `app/src/main/java/com/photoframer/ui/screens/CameraScreen.kt`
-4. `app/src/main/java/com/photoframer/viewmodel/CameraViewModel.kt`
-5. `app/src/main/java/com/photoframer/data/repository/CompositionRepository.kt`
-6. `app/src/main/java/com/photoframer/vision/StepValidator.kt`
-7. `app/src/main/java/com/photoframer/vision/FeatureMatcher.kt`
-8. `app/src/main/java/com/photoframer/vision/ViewChangeAnalyzer.kt`
+1. `app/src/main/java/com/compositionassistant/MainActivity.kt`
+2. `app/src/main/java/com/compositionassistant/ui/state/CameraUiState.kt`
+3. `app/src/main/java/com/compositionassistant/ui/screens/CameraScreen.kt`
+4. `app/src/main/java/com/compositionassistant/viewmodel/CameraViewModel.kt`
+5. `app/src/main/java/com/compositionassistant/data/repository/CompositionRepository.kt`
+6. `app/src/main/java/com/compositionassistant/vision/StepValidator.kt`
+7. `app/src/main/java/com/compositionassistant/vision/FeatureMatcher.kt`
+8. `app/src/main/java/com/compositionassistant/vision/ViewChangeAnalyzer.kt`
 
 ## 技术栈
 
@@ -136,7 +145,6 @@ android_frontend
 - CameraX
 - OpenCV
 - ML Kit Object Detection
-- ARCore
 
 ### 网络
 
@@ -156,13 +164,11 @@ android_frontend
 - Android 8.0 及以上设备或模拟器
 - 相机权限
 
-如果你要测试 ARCore 辅助链，建议使用支持 ARCore 的真机。
-
 ## API 配置
 
 接口配置文件在：
 
-- `app/src/main/java/com/photoframer/data/api/ApiConfig.kt`
+- `app/src/main/java/com/compositionassistant/data/api/ApiConfig.kt`
 
 当前默认值：
 
@@ -209,10 +215,11 @@ const val AI_COMPOSITION_URL = "http://192.168.x.x:8100/"
 ### 2. 如需本地后端联调，先启动后端
 
 ```bash
-cd ../pc_demo_parallel_two_stage_new
+cd ../backend
 pip install -r requirements.txt
-export GEMINI_API_KEY=your_key
-export USE_GEMINI_PROXY=false
+# 当前本地后端默认使用 Gemini Enterprise Agent Platform
+export GOOGLE_CLOUD_PROJECT=picgen-503700
+export GOOGLE_API_KEY=replace-with-agent-platform-api-key
 uvicorn main:app --host 0.0.0.0 --port 8100 --reload
 ```
 
@@ -258,10 +265,9 @@ uvicorn main:app --host 0.0.0.0 --port 8100 --reload
 - `FeatureMatcher`：默认使用 ORB 做高频实时匹配
 - `HomographyAnalyzer`：把匹配结果转成平移 / 缩放 / 旋转信息
 - `PerceptualHashMatcher`：在匹配不稳时做兜底相似度判断
-- `ViewChangeAnalyzer`：处理视角变化动作，叠加主体锁定与位姿信息
-- `ArCorePoseTracker`：ARCore 可用时提供更真实的机位增量；不可用时退回设备姿态
+- `ViewChangeAnalyzer`：处理视角变化动作并叠加主体锁定等信号
 
-这是当前前端最值得理解的核心部分。
+这条视觉验证链负责本仓库的实时引导。
 
 ## 关键设计特点
 
@@ -270,7 +276,6 @@ uvicorn main:app --host 0.0.0.0 --port 8100 --reload
 - Repository 隔离网络实现细节
 - 分析接口优先走流式，失败时再回退到普通接口
 - 实时引导默认优先走轻量 ORB，而不是重型离线匹配
-- ARCore 是增强链，不是强依赖主链
 
 ## 依赖补充说明
 
@@ -286,9 +291,12 @@ cd android_frontend
 ./gradlew test
 ```
 
-当前主要可见的测试位于：
+当前主要单元测试位于 `app/src/test/java/com/compositionassistant/`，包含：
 
-- `app/src/test/java/com/photoframer/viewmodel/CameraViewModelTest.kt`
+- `viewmodel/CameraViewModelTest.kt`、`viewmodel/CameraErrorActionTest.kt`
+- `vision/MotionStepEvaluatorsTest.kt`、`vision/ViewChangeScoringTest.kt`
+- `utils/CameraZoomControllerTest.kt`、`utils/GalleryPermissionUtilsTest.kt`
+- `ui/screens/CameraControlStateTest.kt`（以及工作区新增的 `CaptureCountdownTest.kt`）
 
 ## 常见问题
 
@@ -301,20 +309,11 @@ cd android_frontend
 - 模拟器是否用了 `10.0.2.2`
 - 真机是否和电脑同网段
 
-### 2. 为什么 ARCore 没生效
-
-可能原因：
-
-- 设备不支持 ARCore
-- 没安装 Google Play Services for AR
-- 当前步骤不是 viewpoint 类动作
-- 当前配置里 AR 实验开关没开
-
-### 3. 为什么画面内构图模式不工作
+### 2. 为什么画面内构图模式不工作
 
 因为 `IN_FRAME_COMPOSITION_URL` 对应的是外部服务，不在这个仓库内。主仓库当前只包含 Android 客户端和新的三阶段主后端。
 
 ## 进一步阅读
 
 - 仓库总说明：[../README.md](../README.md)
-- 后端说明：[../pc_demo_parallel_two_stage_new/README.md](../pc_demo_parallel_two_stage_new/README.md)
+- 后端说明：[../backend/README.md](../backend/README.md)

@@ -1,0 +1,973 @@
+package com.compositionassistant.viewmodel
+
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.util.Base64
+import androidx.compose.runtime.mutableStateMapOf
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import com.compositionassistant.arcore.CameraPoseSample
+import com.compositionassistant.data.api.CompositionStep
+import com.compositionassistant.data.api.CompositionResult
+import com.compositionassistant.data.api.InFrameCompositionResponse
+import com.compositionassistant.data.api.ShotSpec
+import com.compositionassistant.data.repository.CompositionRepository
+import com.compositionassistant.data.repository.CompositionRepository.StreamAnalysisUpdate
+import com.compositionassistant.guidance.isLevelAction
+import com.compositionassistant.guidance.isShiftAction
+import com.compositionassistant.guidance.isViewpointAction
+import com.compositionassistant.guidance.isZoomAction
+import com.compositionassistant.inframe.InFrameCompositionGuideBuilder
+import com.compositionassistant.inframe.InFrameCompositionGuide
+import com.compositionassistant.inframe.InFrameGuideValidationConfig
+import com.compositionassistant.ui.state.CameraUiState
+import com.compositionassistant.utils.AnalysisImagePreprocessor
+import com.compositionassistant.utils.PreparedAnalysisImage
+import com.compositionassistant.utils.ImageFileDecoder
+import com.compositionassistant.vision.StepValidationResult
+import com.compositionassistant.vision.StepValidator
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.File
+
+/**
+ * 相机 ViewModel
+ * 管理 UI 状态和业务逻辑
+ */
+class CameraViewModel(
+    private val prepareImage: suspend (File, Boolean) -> PreparedAnalysisImage = { file, requireBitmap ->
+        withContext(Dispatchers.IO) {
+            AnalysisImagePreprocessor.prepare(file, requireBitmap)
+        }
+    }
+) : ViewModel() {
+    data class PostCapturePrompt(
+        val message: String
+    )
+
+    data class NewCandidatePrompt(
+        val message: String
+    )
+
+    private data class ActiveValidation(
+        val sessionId: Long,
+        val stepIndex: Int,
+        val requestId: Long
+    )
+
+    companion object {
+        private const val STEP_TIMEOUT_MS = 15_000L
+    }
+
+    private val validationLock = Any()
+    
+    private val repository = CompositionRepository()
+    
+    private val _uiState = MutableStateFlow<CameraUiState>(CameraUiState.Preview)
+    val uiState: StateFlow<CameraUiState> = _uiState.asStateFlow()
+    
+    // 步骤验证结果
+    private val _validationResult = MutableStateFlow<StepValidationResult?>(null)
+    val validationResult: StateFlow<StepValidationResult?> = _validationResult.asStateFlow()
+    
+    // 是否自动跳转（步骤完成后）
+    private val _autoAdvanceEnabled = MutableStateFlow(true)
+    val autoAdvanceEnabled: StateFlow<Boolean> = _autoAdvanceEnabled.asStateFlow()
+    
+    // 步骤完成状态（用于显示完成动画）
+    private val _stepCompleted = MutableStateFlow(false)
+    val stepCompleted: StateFlow<Boolean> = _stepCompleted.asStateFlow()
+    
+    // 所有步骤完成状态
+    private val _allStepsCompleted = MutableStateFlow(false)
+    val allStepsCompleted: StateFlow<Boolean> = _allStepsCompleted.asStateFlow()
+
+    private val _showStepSkip = MutableStateFlow(false)
+    val showStepSkip: StateFlow<Boolean> = _showStepSkip.asStateFlow()
+
+    private val _postCapturePrompt = MutableStateFlow<PostCapturePrompt?>(null)
+    val postCapturePrompt: StateFlow<PostCapturePrompt?> = _postCapturePrompt.asStateFlow()
+
+    private val _newCandidatePrompt = MutableStateFlow<NewCandidatePrompt?>(null)
+    val newCandidatePrompt: StateFlow<NewCandidatePrompt?> = _newCandidatePrompt.asStateFlow()
+    
+    // 缓存解码后的图片 (使用 technique 作为 key)
+    private val imageCache = mutableStateMapOf<String, Bitmap>()
+
+    // 用于本地验证的参考图；AI 构图与缩略图一致，画面内构图则使用上传分析图
+    private val validationImageCache = mutableMapOf<String, Bitmap>()
+
+    // 画面内构图的引导参数（center / target zoom）
+    private val inFrameGuideConfigCache = mutableMapOf<String, InFrameGuideValidationConfig>()
+    
+    // 缓存候选方案状态（用于返回）
+    private var cachedCandidatesState: CameraUiState.Candidates? = null
+    private var pendingPostCaptureHint: String? = null
+    
+    // 当前步骤验证器
+    private var stepValidator: StepValidator? = null
+    
+    // 防止重复触发自动跳转
+    private var isAutoAdvancing = false
+    
+    // 当前分析任务
+    private var analysisJob: Job? = null
+    private var stepTimeoutJob: Job? = null
+    // 引导会话与验证请求版本号，确保只有“当前步骤、当前请求”的结果可以生效
+    private var guidanceSessionId = 0L
+    private var latestValidationRequestId = 0L
+    private var activeValidation: ActiveValidation? = null
+    
+    /**
+     * 分析图片构图（优先使用 SSE 流式接口）
+     */
+    fun analyzeImage(imageFile: File) {
+        _postCapturePrompt.value = null
+        _newCandidatePrompt.value = null
+        analysisJob?.cancel()  // 取消之前的分析任务
+        analysisJob = viewModelScope.launch {
+            _uiState.value = CameraUiState.Analyzing
+
+            val preparedImage = try {
+                prepareImage(imageFile, false)
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                _uiState.value = CameraUiState.Error(
+                    error.message ?: "图片预处理失败"
+                )
+                return@launch
+            }
+
+            try {
+                imageCache.clear()
+                validationImageCache.clear()
+                inFrameGuideConfigCache.clear()
+
+                val streamResult = repository.analyzeCompositionStream(preparedImage.file) { update ->
+                    applyStreamAnalysisUpdate(update)
+                }
+
+                streamResult
+                    .onSuccess { response ->
+                        if (response.applicableCount <= 0 || response.compositions.isEmpty()) {
+                            _uiState.value = CameraUiState.Error(
+                                response.message ?: "未能生成适用的构图方案"
+                            )
+                        }
+                    }
+                    .onFailure {
+                        repository.analyzeComposition(preparedImage.file)
+                            .onSuccess { response ->
+                                if (response.applicableCount > 0 && response.compositions.isNotEmpty()) {
+                                    applyCandidatesResponse(response)
+                                } else {
+                                    _uiState.value = CameraUiState.Error(
+                                        response.message ?: "未能生成适用的构图方案"
+                                    )
+                                }
+                            }
+                            .onFailure { error ->
+                                val message = error.message ?: "网络错误，请检查连接"
+                                _uiState.value = CameraUiState.Error(
+                                    message = message
+                                )
+                            }
+                    }
+            } finally {
+                preparedImage.cleanup()
+            }
+        }
+    }
+
+    /**
+     * 画面内构图分析
+     */
+    fun analyzeInFrameComposition(imageFile: File) {
+        _postCapturePrompt.value = null
+        _newCandidatePrompt.value = null
+        analysisJob?.cancel()
+        analysisJob = viewModelScope.launch {
+            _uiState.value = CameraUiState.Analyzing
+
+            val preparedImage = try {
+                prepareImage(imageFile, true)
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                _uiState.value = CameraUiState.Error(
+                    error.message ?: "图片预处理失败"
+                )
+                return@launch
+            }
+
+            try {
+                val result = repository.analyzeInFrameComposition(preparedImage.file)
+                val response = result.getOrElse { error ->
+                    val message = error.message ?: "画面内构图分析失败"
+                    _uiState.value = CameraUiState.Error(
+                        message = message
+                    )
+                    return@launch
+                }
+
+                if (isNonTargetInFrameScene(response)) {
+                    _uiState.value = CameraUiState.Error(
+                        title = "当前场景不适合",
+                        message = "当前场景无明显主体，换个场景试试吧～",
+                        actionText = "返回"
+                    )
+                    return@launch
+                }
+
+                val guides = withContext(Dispatchers.Default) {
+                    val sourceBitmap = preparedImage.bitmap ?: ImageFileDecoder.decodeBitmapRespectingExif(preparedImage.file)
+                        ?: return@withContext emptyList()
+                    InFrameCompositionGuideBuilder.buildAll(sourceBitmap, response)
+                }
+
+                if (guides.isNotEmpty()) {
+                    imageCache.clear()
+                    validationImageCache.clear()
+                    inFrameGuideConfigCache.clear()
+                    cacheInFrameGuides(guides)
+
+                    if (guides.size == 1) {
+                        cachedCandidatesState = null
+                        selectComposition(guides.first().composition)
+                    } else {
+                        val candidatesState = CameraUiState.Candidates(
+                            totalTechniques = guides.size,
+                            completedCount = guides.size,
+                            applicableCount = guides.size,
+                            totalTimeMs = 0f,
+                            compositions = guides.map { it.composition }
+                        )
+                        cachedCandidatesState = candidatesState
+                        _uiState.value = candidatesState
+                    }
+                } else {
+                    _uiState.value = CameraUiState.Error("未能生成有效的画面内参考构图")
+                }
+            } finally {
+                preparedImage.cleanup()
+            }
+        }
+    }
+    
+    /**
+     * 取消当前分析
+     */
+    fun cancelAnalysis() {
+        analysisJob?.cancel()
+        analysisJob = null
+        _postCapturePrompt.value = null
+        _newCandidatePrompt.value = null
+        invalidateGuidanceSession()
+        clearStepTimeout()
+        _uiState.value = CameraUiState.Preview
+    }
+    
+    /**
+     * 选择构图方案，进入引导阶段
+     */
+    fun selectComposition(composition: CompositionResult) {
+        _postCapturePrompt.value = null
+        _newCandidatePrompt.value = null
+        stepValidator?.close()
+        val guidanceComposition = prepareCompositionForGuidance(composition)
+
+        // 获取目标图片并创建验证器 (使用 technique 作为 key)
+        val targetBitmap = ensureCompositionBitmapCached(guidanceComposition)
+        if (targetBitmap == null) {
+            stepValidator = null
+            invalidateGuidanceSession()
+            resetGuidanceProgress()
+            _uiState.value = CameraUiState.Error(
+                title = "参考图不可用",
+                message = "当前方案缺少参考图，暂时无法开始引导，请换一个方案试试",
+                actionText = "返回"
+            )
+            return
+        }
+
+        val inFrameGuideConfig = inFrameGuideConfigCache[guidanceComposition.technique]
+        stepValidator = StepValidator(
+            targetBitmap = targetBitmap,
+            inFrameGuideConfig = inFrameGuideConfig,
+            shotSpec = guidanceComposition.shotSpec
+        )
+        stepValidator?.resetStableFrames()
+
+        beginGuidanceSession()
+        resetGuidanceProgress()
+        
+        _uiState.value = CameraUiState.Guiding(
+            composition = guidanceComposition,
+            currentStepIndex = 0
+        )
+        armStepTimeout()
+    }
+
+    private fun prepareCompositionForGuidance(composition: CompositionResult): CompositionResult {
+        val normalizedSteps = normalizeGuidanceSteps(
+            steps = composition.steps,
+            shotSpec = composition.shotSpec
+        )
+        return composition.copy(steps = normalizedSteps)
+    }
+
+    private fun normalizeGuidanceSteps(
+        steps: List<CompositionStep>,
+        shotSpec: ShotSpec?
+    ): List<CompositionStep> {
+        if (steps.isEmpty()) return emptyList()
+
+        val normalized = steps.map { step ->
+            when {
+                step.isViewpointAction() -> step.copy(
+                    guideText = simplifyViewpointGuideText(step)
+                )
+                step.isLevelAction() -> step.copy(
+                    guideText = simplifyLevelGuideText(step)
+                )
+                step.isShiftAction() -> step.copy(
+                    guideText = simplifyShiftGuideText(step)
+                )
+                step.isZoomAction() -> step.copy(
+                    guideText = simplifyZoomGuideText(step)
+                )
+                else -> step
+            }
+        }.toMutableList()
+
+        val firstViewpointIndex = normalized.indexOfFirst { it.isViewpointAction() }
+        if (firstViewpointIndex != -1) {
+            val trailingSteps = normalized.drop(firstViewpointIndex + 1)
+            val hasTrailingPositionRefine = trailingSteps.any { it.isShiftAction() }
+            if (!hasTrailingPositionRefine) {
+                buildSyntheticShiftRefineStep(shotSpec)?.let { syntheticStep ->
+                    normalized += syntheticStep
+                }
+            }
+        }
+
+        return renumberSteps(normalized.take(4))
+    }
+
+    private fun simplifyViewpointGuideText(step: CompositionStep): String {
+        return when (step.actionType.trim().lowercase()) {
+            "orbit" -> if (step.direction.equals("right", ignoreCase = true)) {
+                "先向右绕一点"
+            } else {
+                "先向左绕一点"
+            }
+            "raisecamera" -> "先抬高机位"
+            "lowercamera" -> "先降低机位"
+            "step" -> if (step.direction.equals("backward", ignoreCase = true)) {
+                "先后退一点"
+            } else {
+                "先靠近一点"
+            }
+            else -> step.guideText
+        }
+    }
+
+    private fun simplifyLevelGuideText(step: CompositionStep): String {
+        return if (step.direction.equals("cw", ignoreCase = true)) {
+            "再微微向右转正画面"
+        } else {
+            "再微微向左转正画面"
+        }
+    }
+
+    private fun simplifyShiftGuideText(step: CompositionStep): String {
+        return when (step.direction.trim().lowercase()) {
+            "left" -> "向左移动手机，让十字准星和中心圈对齐"
+            "right" -> "向右移动手机，让十字准星和中心圈对齐"
+            "up" -> "向上移动手机，让十字准星和中心圈对齐"
+            "down" -> "向下移动手机，让十字准星和中心圈对齐"
+            else -> "移动手机，让十字准星和中心圈对齐"
+        }
+    }
+
+    private fun simplifyZoomGuideText(step: CompositionStep): String {
+        return if (step.direction.equals("out", ignoreCase = true)) {
+            "再把画面缩小到参考大小"
+        } else {
+            "再把画面缩放到参考大小"
+        }
+    }
+
+    private fun buildSyntheticShiftRefineStep(shotSpec: ShotSpec?): CompositionStep? {
+        val targetCenter = shotSpec?.targetSubjectCenter ?: return null
+        if (targetCenter.size < 2) return null
+
+        val centerX = targetCenter[0]
+        val centerY = targetCenter[1]
+        val deltaX = centerX - 0.5f
+        val deltaY = centerY - 0.5f
+        val centerOffsetThreshold = 0.04f
+        if (kotlin.math.abs(deltaX) < centerOffsetThreshold &&
+            kotlin.math.abs(deltaY) < centerOffsetThreshold
+        ) {
+            return null
+        }
+
+        val direction = if (kotlin.math.abs(deltaX) >= kotlin.math.abs(deltaY)) {
+            if (deltaX >= 0f) "Right" else "Left"
+        } else {
+            if (deltaY >= 0f) "Down" else "Up"
+        }
+
+        return CompositionStep(
+            stepOrder = 2,
+            actionType = "Shift",
+            direction = direction,
+            guideText = "移动手机，让十字准星和中心圈对齐"
+        )
+    }
+
+    private fun renumberSteps(steps: List<CompositionStep>): List<CompositionStep> {
+        return steps.mapIndexed { index, step ->
+            step.copy(stepOrder = index + 1)
+        }
+    }
+    
+    /**
+     * 验证当前帧是否完成当前步骤
+     * 应在相机帧回调中调用
+     */
+    fun validateCurrentFrame(
+        currentFrame: Bitmap,
+        currentZoomRatio: Float = 1.0f,
+        cameraPoseSample: CameraPoseSample? = null
+    ) {
+        val currentState = _uiState.value
+        if (currentState !is CameraUiState.Guiding) return
+        if (_allStepsCompleted.value || isAutoAdvancing) return
+
+        val step = currentState.currentStep ?: return
+        val validator = stepValidator ?: return
+
+        val sessionId = guidanceSessionId
+        val stepIndex = currentState.currentStepIndex
+        val requestId = nextValidationRequestId()
+        if (!tryStartValidation(sessionId, stepIndex, requestId)) return
+        
+        viewModelScope.launch {
+            try {
+                // 根据操作类型选择验证方式
+                if (step.isViewpointAction()) {
+                    // 视角类动作使用 source/target 双相似度 + 主体辅助分析（异步）
+                    validator.validateViewChangeAsync(
+                        currentFrame = currentFrame,
+                        stepKey = step.stepOrder,
+                        actionType = step.actionType,
+                        direction = step.direction,
+                        cameraPoseSample = cameraPoseSample
+                    ) { result ->
+                        applyValidationResultIfCurrent(
+                            result = result,
+                            validator = validator,
+                            sessionId = sessionId,
+                            stepIndex = stepIndex,
+                            requestId = requestId
+                        )
+                        finishValidation(sessionId, stepIndex, requestId)
+                    }
+                } else {
+                    // Shift 和 Zoom 使用 Homography 验证
+                    val result = withContext(Dispatchers.Default) {
+                        validator.validateStep(
+                            currentFrame = currentFrame,
+                            stepKey = step.stepOrder,
+                            actionType = step.actionType,
+                            direction = step.direction,
+                            currentZoomRatio = currentZoomRatio,
+                            cameraPoseSample = cameraPoseSample
+                        )
+                    }
+
+                    applyValidationResultIfCurrent(
+                        result = result,
+                        validator = validator,
+                        sessionId = sessionId,
+                        stepIndex = stepIndex,
+                        requestId = requestId
+                    )
+                    finishValidation(sessionId, stepIndex, requestId)
+                }
+            } catch (_: Exception) {
+                finishValidation(sessionId, stepIndex, requestId)
+            }
+        }
+    }
+
+    
+    /**
+     * 处理步骤完成
+     */
+    private fun handleStepCompleted(sessionId: Long, stepIndex: Int) {
+        if (_allStepsCompleted.value || isAutoAdvancing) return
+
+        isAutoAdvancing = true
+        _stepCompleted.value = true
+        clearStepTimeout()
+        invalidatePendingValidation()
+        
+        viewModelScope.launch {
+            // 显示完成动画
+            delay(800)  // 等待动画显示
+
+            if (!isGuidanceStepCurrent(sessionId, stepIndex)) {
+                _stepCompleted.value = false
+                isAutoAdvancing = false
+                return@launch
+            }
+            
+            _stepCompleted.value = false
+
+            val currentState = _uiState.value as? CameraUiState.Guiding
+            if (currentState == null) {
+                isAutoAdvancing = false
+                return@launch
+            }
+
+            if (currentState.isLastStep) {
+                // 所有步骤完成
+                _allStepsCompleted.value = true
+                clearStepTimeout()
+                invalidatePendingValidation()
+            } else {
+                // 跳转到下一步
+                nextStep()
+            }
+            
+            delay(200)
+            isAutoAdvancing = false
+        }
+    }
+    
+    /**
+     * 切换自动跳转
+     */
+    fun toggleAutoAdvance() {
+        _autoAdvanceEnabled.value = !_autoAdvanceEnabled.value
+    }
+
+    fun skipCurrentStep() {
+        val currentState = _uiState.value as? CameraUiState.Guiding ?: return
+        clearStepTimeout()
+        prepareForManualStepTransition()
+
+        if (currentState.isLastStep) {
+            _allStepsCompleted.value = true
+        } else {
+            _uiState.value = currentState.copy(
+                currentStepIndex = currentState.currentStepIndex + 1
+            )
+            armStepTimeout()
+        }
+    }
+
+    fun handleErrorAction() {
+        if (cachedCandidatesState != null) {
+            backToCandidates()
+        } else {
+            backToPreview()
+        }
+    }
+    
+    /**
+     * 下一步
+     */
+    fun nextStep() {
+        val currentState = _uiState.value as? CameraUiState.Guiding ?: return
+        if (!currentState.isLastStep) {
+            prepareForManualStepTransition()
+            _uiState.value = currentState.copy(
+                currentStepIndex = currentState.currentStepIndex + 1
+            )
+            armStepTimeout()
+        } else if (_validationResult.value?.isCompleted == true) {
+            _allStepsCompleted.value = true
+            clearStepTimeout()
+            invalidatePendingValidation()
+        }
+    }
+    
+    /**
+     * 上一步
+     */
+    fun previousStep() {
+        val currentState = _uiState.value as? CameraUiState.Guiding ?: return
+        if (!currentState.isFirstStep) {
+            prepareForManualStepTransition()
+            _uiState.value = currentState.copy(
+                currentStepIndex = currentState.currentStepIndex - 1
+            )
+            armStepTimeout()
+        }
+    }
+    
+    /**
+     * 返回预览状态
+     */
+    fun backToPreview() {
+        _postCapturePrompt.value = null
+        pendingPostCaptureHint = null
+        _newCandidatePrompt.value = null
+        clearGuidanceStateForExit()
+        imageCache.clear()
+        validationImageCache.clear()
+        inFrameGuideConfigCache.clear()
+        cachedCandidatesState = null
+        _uiState.value = CameraUiState.Preview
+    }
+    
+    /**
+     * 返回候选方案选择
+     */
+    fun backToCandidates() {
+        val cached = cachedCandidatesState
+        if (cached != null) {
+            _postCapturePrompt.value = null
+            _newCandidatePrompt.value = null
+            clearGuidanceStateForExit()
+            _uiState.value = cached.copy(
+                postCaptureHint = pendingPostCaptureHint ?: cached.postCaptureHint
+            )
+            pendingPostCaptureHint = null
+        } else {
+            backToPreview()
+        }
+    }
+
+    fun handleGuidedCaptureCompleted() {
+        val cached = cachedCandidatesState
+        if (cached == null) {
+            backToPreview()
+            return
+        }
+
+        val hasOtherChoices = cached.compositions.size > 1
+        val stillProcessing = cached.completedCount < cached.totalTechniques
+        if (hasOtherChoices || stillProcessing) {
+            val hint = if (stillProcessing) {
+                "还有方案正在生成，也可以先拍下这一张"
+            } else {
+                "已发现新的构图方案，也可以换一个角度再拍"
+            }
+            pendingPostCaptureHint = hint
+            _postCapturePrompt.value = PostCapturePrompt(message = hint)
+            _newCandidatePrompt.value = null
+            return
+        }
+
+        pendingPostCaptureHint = null
+        backToPreview()
+    }
+
+    fun dismissPostCapturePrompt() {
+        _postCapturePrompt.value = null
+    }
+
+    fun viewOtherCandidatesAfterCapture() {
+        _postCapturePrompt.value = null
+        _newCandidatePrompt.value = null
+        backToCandidates()
+    }
+
+    fun viewUpdatedCandidates() {
+        _newCandidatePrompt.value = null
+        _postCapturePrompt.value = null
+        backToCandidates()
+    }
+
+    fun dismissNewCandidatePrompt() {
+        _newCandidatePrompt.value = null
+    }
+    
+    /**
+     * 获取缓存的图片 (使用 technique 作为 key)
+     */
+    fun getCachedImage(technique: String): Bitmap? {
+        return imageCache[technique]
+    }
+    
+    /**
+     * 解码 Base64 图片
+     */
+    private fun decodeBase64Image(base64String: String): Bitmap? {
+        return try {
+            val pureBase64 = base64String.substringAfter("base64,", base64String)
+            val imageBytes = Base64.decode(pureBase64, Base64.DEFAULT)
+            BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.size)
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    private fun warmCandidateImagesAsync(compositions: List<CompositionResult>) {
+        viewModelScope.launch(Dispatchers.Default) {
+            compositions.forEach { composition ->
+                if (imageCache.containsKey(composition.technique)) return@forEach
+                val bitmap = composition.imageBase64?.let(::decodeBase64Image) ?: return@forEach
+                withContext(Dispatchers.Main) {
+                    imageCache[composition.technique] = bitmap
+                    validationImageCache[composition.technique] = bitmap
+                }
+            }
+        }
+    }
+
+    private fun ensureCompositionBitmapCached(composition: CompositionResult): Bitmap? {
+        val cached = validationImageCache[composition.technique] ?: imageCache[composition.technique]
+        if (cached != null) return cached
+
+        val decoded = composition.imageBase64?.let(::decodeBase64Image) ?: return null
+        imageCache[composition.technique] = decoded
+        validationImageCache[composition.technique] = decoded
+        return decoded
+    }
+
+    private suspend fun applyStreamAnalysisUpdate(update: StreamAnalysisUpdate) {
+        update.partialResponse?.let { response ->
+            if (response.compositions.isNotEmpty()) {
+                withContext(Dispatchers.Main) {
+                    applyCandidatesResponse(
+                        response = response,
+                        completedCount = update.completedCount,
+                        totalCandidateCount = update.totalCandidateCount
+                    )
+                }
+            }
+        }
+
+        update.finalResponse?.let { response ->
+            withContext(Dispatchers.Main) {
+                if (response.compositions.isNotEmpty()) {
+                    applyCandidatesResponse(
+                        response = response,
+                        completedCount = update.completedCount,
+                        totalCandidateCount = update.totalCandidateCount
+                    )
+                } else if (_uiState.value is CameraUiState.Analyzing) {
+                    _uiState.value = CameraUiState.Error(
+                        response.message ?: "未能生成适用的构图方案"
+                    )
+                }
+            }
+        }
+    }
+
+    private fun applyCandidatesResponse(
+        response: com.compositionassistant.data.api.AnalysisResponse,
+        completedCount: Int? = null,
+        totalCandidateCount: Int? = null
+    ) {
+        val previousHint = (cachedCandidatesState ?: _uiState.value as? CameraUiState.Candidates)?.postCaptureHint
+        val previousCandidateCount = cachedCandidatesState?.compositions?.size ?: 0
+        val currentUiState = _uiState.value
+        val candidatesState = CameraUiState.Candidates(
+            totalTechniques = totalCandidateCount ?: response.totalTechniques,
+            completedCount = completedCount ?: response.compositions.size,
+            applicableCount = response.applicableCount,
+            totalTimeMs = response.totalTimeMs,
+            compositions = response.compositions,
+            postCaptureHint = previousHint
+        )
+        cachedCandidatesState = candidatesState
+        warmCandidateImagesAsync(response.compositions)
+        when (currentUiState) {
+            is CameraUiState.Analyzing,
+            is CameraUiState.Candidates -> {
+                _uiState.value = candidatesState
+            }
+            is CameraUiState.Guiding -> {
+                val hasNewCandidate = candidatesState.compositions.size > previousCandidateCount
+                val isStillProcessing = candidatesState.completedCount < candidatesState.totalTechniques
+                if (hasNewCandidate && !_allStepsCompleted.value) {
+                    _newCandidatePrompt.value = NewCandidatePrompt(
+                        message = if (isStillProcessing) {
+                            "有新的方案，可先继续当前构图"
+                        } else {
+                            "发现新的构图方案"
+                        }
+                    )
+                }
+            }
+            else -> Unit
+        }
+    }
+
+    private fun cacheInFrameGuides(guides: List<InFrameCompositionGuide>) {
+        guides.forEach { guide ->
+            imageCache[guide.composition.technique] = guide.previewBitmap
+            validationImageCache[guide.composition.technique] = guide.validationBitmap
+            inFrameGuideConfigCache[guide.composition.technique] = guide.validationConfig
+        }
+    }
+
+    private fun isNonTargetInFrameScene(response: InFrameCompositionResponse): Boolean {
+        val sceneType = response.sceneType
+            ?.trim()
+            ?.lowercase()
+            ?.takeIf { it.isNotBlank() }
+            ?: return false
+
+        return sceneType in setOf("notarget", "no_target", "no-target")
+    }
+
+    private fun beginGuidanceSession() {
+        guidanceSessionId += 1
+        latestValidationRequestId = 0L
+        isAutoAdvancing = false
+        resetActiveValidation()
+        clearStepTimeout()
+    }
+
+    private fun invalidateGuidanceSession() {
+        guidanceSessionId += 1
+        invalidatePendingValidation()
+        isAutoAdvancing = false
+        clearStepTimeout()
+    }
+
+    private fun resetGuidanceProgress() {
+        _validationResult.value = null
+        _stepCompleted.value = false
+        _allStepsCompleted.value = false
+    }
+
+    private fun prepareForManualStepTransition() {
+        invalidatePendingValidation()
+        isAutoAdvancing = false
+        stepValidator?.resetStableFrames()
+        resetGuidanceProgress()
+    }
+
+    private fun clearGuidanceStateForExit() {
+        invalidateGuidanceSession()
+        stepValidator?.close()
+        stepValidator = null
+        resetGuidanceProgress()
+    }
+
+    private fun armStepTimeout() {
+        clearStepTimeout()
+        val currentState = _uiState.value as? CameraUiState.Guiding ?: return
+        val sessionId = guidanceSessionId
+        val stepIndex = currentState.currentStepIndex
+        stepTimeoutJob = viewModelScope.launch {
+            delay(STEP_TIMEOUT_MS)
+            if (
+                isGuidanceStepCurrent(sessionId, stepIndex) &&
+                !_stepCompleted.value &&
+                !_allStepsCompleted.value
+            ) {
+                _showStepSkip.value = true
+            }
+        }
+    }
+
+    private fun clearStepTimeout() {
+        stepTimeoutJob?.cancel()
+        stepTimeoutJob = null
+        _showStepSkip.value = false
+    }
+
+    private fun nextValidationRequestId(): Long {
+        latestValidationRequestId += 1
+        return latestValidationRequestId
+    }
+
+    private fun invalidatePendingValidation() {
+        latestValidationRequestId += 1
+        resetActiveValidation()
+    }
+
+    private fun tryStartValidation(
+        sessionId: Long,
+        stepIndex: Int,
+        requestId: Long
+    ): Boolean {
+        synchronized(validationLock) {
+            if (activeValidation != null) return false
+            activeValidation = ActiveValidation(
+                sessionId = sessionId,
+                stepIndex = stepIndex,
+                requestId = requestId
+            )
+            return true
+        }
+    }
+
+    private fun finishValidation(
+        sessionId: Long,
+        stepIndex: Int,
+        requestId: Long
+    ) {
+        synchronized(validationLock) {
+            val current = activeValidation ?: return
+            if (
+                current.sessionId == sessionId &&
+                current.stepIndex == stepIndex &&
+                current.requestId == requestId
+            ) {
+                activeValidation = null
+            }
+        }
+    }
+
+    private fun resetActiveValidation() {
+        synchronized(validationLock) {
+            activeValidation = null
+        }
+    }
+
+    private fun isGuidanceStepCurrent(
+        sessionId: Long,
+        stepIndex: Int,
+        validator: StepValidator? = null
+    ): Boolean {
+        if (sessionId != guidanceSessionId) return false
+        if (validator != null && validator !== stepValidator) return false
+
+        val state = _uiState.value as? CameraUiState.Guiding ?: return false
+        return state.currentStepIndex == stepIndex
+    }
+
+    private fun applyValidationResultIfCurrent(
+        result: StepValidationResult,
+        validator: StepValidator,
+        sessionId: Long,
+        stepIndex: Int,
+        requestId: Long
+    ) {
+        if (requestId != latestValidationRequestId) return
+        if (!isGuidanceStepCurrent(sessionId, stepIndex, validator)) return
+        if (_allStepsCompleted.value) return
+
+        _validationResult.value = result
+
+        if (result.isCompleted && !isAutoAdvancing) {
+            val currentState = _uiState.value as? CameraUiState.Guiding
+            if (!_autoAdvanceEnabled.value && currentState?.isLastStep == true) {
+                _allStepsCompleted.value = true
+                clearStepTimeout()
+                invalidatePendingValidation()
+            } else if (_autoAdvanceEnabled.value) {
+                handleStepCompleted(sessionId, stepIndex)
+            }
+        }
+    }
+}

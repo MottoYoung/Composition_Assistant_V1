@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">PhotoFramer</string>
+    <string name="app_name">摄影助手v1</string>
     <string name="analyze_button">分析构图</string>
     <string name="analyzing">分析中...</string>
     <string name="take_photo">拍照</string>
