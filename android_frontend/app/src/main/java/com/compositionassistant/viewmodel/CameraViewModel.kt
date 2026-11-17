@@ -22,10 +22,12 @@ import com.compositionassistant.inframe.InFrameCompositionGuide
 import com.compositionassistant.inframe.InFrameGuideValidationConfig
 import com.compositionassistant.ui.state.CameraUiState
 import com.compositionassistant.utils.AnalysisImagePreprocessor
+import com.compositionassistant.utils.PreparedAnalysisImage
 import com.compositionassistant.utils.ImageFileDecoder
 import com.compositionassistant.vision.StepValidationResult
 import com.compositionassistant.vision.StepValidator
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -39,7 +41,13 @@ import java.io.File
  * 相机 ViewModel
  * 管理 UI 状态和业务逻辑
  */
-class CameraViewModel : ViewModel() {
+class CameraViewModel(
+    private val prepareImage: suspend (File, Boolean) -> PreparedAnalysisImage = { file, requireBitmap ->
+        withContext(Dispatchers.IO) {
+            AnalysisImagePreprocessor.prepare(file, requireBitmap)
+        }
+    }
+) : ViewModel() {
     data class PostCapturePrompt(
         val message: String
     )
@@ -128,9 +136,9 @@ class CameraViewModel : ViewModel() {
             _uiState.value = CameraUiState.Analyzing
 
             val preparedImage = try {
-                withContext(Dispatchers.IO) {
-                    AnalysisImagePreprocessor.prepare(imageFile)
-                }
+                prepareImage(imageFile, false)
+            } catch (error: CancellationException) {
+                throw error
             } catch (error: Exception) {
                 _uiState.value = CameraUiState.Error(
                     error.message ?: "图片预处理失败"
@@ -190,12 +198,9 @@ class CameraViewModel : ViewModel() {
             _uiState.value = CameraUiState.Analyzing
 
             val preparedImage = try {
-                withContext(Dispatchers.IO) {
-                    AnalysisImagePreprocessor.prepare(
-                        sourceFile = imageFile,
-                        requireBitmap = true
-                    )
-                }
+                prepareImage(imageFile, true)
+            } catch (error: CancellationException) {
+                throw error
             } catch (error: Exception) {
                 _uiState.value = CameraUiState.Error(
                     error.message ?: "图片预处理失败"
