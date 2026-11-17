@@ -57,6 +57,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
@@ -81,6 +82,8 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -164,6 +167,9 @@ fun CameraScreen(
     }
 
     val controls = rememberCameraControlState(context)
+    val captureCountdown = remember(scope, controls) {
+        CaptureCountdown(scope) { controls.countdownValue = it }
+    }
     var flashMode by controls::flashMode
     var gridEnabled by controls::gridEnabled
     var lastPhotoThumbnail by controls::lastPhotoThumbnail
@@ -275,6 +281,7 @@ fun CameraScreen(
     }
 
     fun openGallery() {
+        captureCountdown.cancel()
         GalleryUtils.openGallery(context)
     }
 
@@ -330,6 +337,7 @@ fun CameraScreen(
     }
 
     fun switchCameraFacing() {
+        captureCountdown.cancel()
         val targetFacing = if (selectedFacing == CameraSelector.LENS_FACING_BACK) {
             CameraSelector.LENS_FACING_FRONT
         } else {
@@ -380,8 +388,24 @@ fun CameraScreen(
     }
 
     LaunchedEffect(uiState) {
+        captureCountdown.cancel()
         if (uiState is CameraUiState.Preview) {
             controls.resetTransientCaptureState()
+        }
+    }
+
+    DisposableEffect(lifecycleOwner, captureCountdown) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_PAUSE) {
+                captureCountdown.cancel()
+                controls.isBursting = false
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            captureCountdown.cancel()
+            controls.isBursting = false
         }
     }
 
@@ -425,7 +449,7 @@ fun CameraScreen(
     }
 
     fun startCountdownCapture() {
-        if (countdownValue != null) return
+        if (captureCountdown.isActive) return
         val timerSeconds = selectedTimer.seconds
         if (timerSeconds <= 0) {
             performHaptic(HapticFeedbackConstants.LONG_PRESS)
@@ -433,14 +457,8 @@ fun CameraScreen(
             return
         }
 
-        countdownValue = timerSeconds
-        scope.launch {
-            while ((countdownValue ?: 0) > 0) {
-                delay(1000)
-                val next = (countdownValue ?: 0) - 1
-                countdownValue = if (next > 0) next else null
-            }
-            if (uiState is CameraUiState.Preview) {
+        captureCountdown.start(timerSeconds) {
+            if (viewModel.uiState.value is CameraUiState.Preview) {
                 capturePreviewPhoto()
             }
         }
@@ -452,7 +470,7 @@ fun CameraScreen(
         }
         isBursting = true
         burstCount = 0
-        countdownValue = null
+        captureCountdown.cancel()
         scope.launch {
             while (isBursting) {
                 captureAndAnalyze(context, imageCapture, cameraExecutor) { file ->
@@ -480,7 +498,7 @@ fun CameraScreen(
 
     val startInFrameComposition = {
         activeEntryMode = CameraEntryMode.IN_FRAME
-        countdownValue = null
+        captureCountdown.cancel()
         captureAndAnalyze(context, imageCapture, cameraExecutor) { file ->
             val adjustedFile = applyAspectRatioToCapturedFile(
                 context,
@@ -493,7 +511,7 @@ fun CameraScreen(
 
     val startAiAnalysis = {
         activeEntryMode = CameraEntryMode.AI
-        countdownValue = null
+        captureCountdown.cancel()
         captureAndAnalyze(context, imageCapture, cameraExecutor) { file ->
             val adjustedFile = applyAspectRatioToCapturedFile(
                 context,
