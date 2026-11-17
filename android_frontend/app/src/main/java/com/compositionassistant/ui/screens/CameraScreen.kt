@@ -427,24 +427,25 @@ fun CameraScreen(
         }
     }
 
-    fun saveCapturedPhoto(file: File, namePrefix: String) {
-        scope.launch {
-            val adjustedFile = withContext(Dispatchers.IO) {
-                applyAspectRatioToCapturedFile(context, file, FIXED_VIEWPORT_ASPECT_RATIO)
-            }
-            val thumbnail = withContext(Dispatchers.IO) {
-                ImageFileDecoder.decodeThumbnailRespectingExif(adjustedFile, maxDimension = 512)
-            }
-            if (thumbnail != null) {
-                lastPhotoThumbnail = thumbnail
-            }
-            ImageSaver.saveImageFileToGallery(context, adjustedFile, namePrefix)
+    suspend fun saveCapturedPhoto(file: File, namePrefix: String): Boolean {
+        val adjustedFile = withContext(Dispatchers.IO) {
+            applyAspectRatioToCapturedFile(context, file, FIXED_VIEWPORT_ASPECT_RATIO)
         }
+        if (!ImageSaver.saveImageFileToGallery(context, adjustedFile, namePrefix)) {
+            return false
+        }
+        val thumbnail = withContext(Dispatchers.IO) {
+            ImageFileDecoder.decodeThumbnailRespectingExif(adjustedFile, maxDimension = 512)
+        }
+        if (thumbnail != null) {
+            lastPhotoThumbnail = thumbnail
+        }
+        return true
     }
 
     fun capturePreviewPhoto() {
         captureAndAnalyze(context, imageCapture, cameraExecutor) { file ->
-            saveCapturedPhoto(file, "composition_assistant")
+            scope.launch { saveCapturedPhoto(file, "composition_assistant") }
         }
     }
 
@@ -474,7 +475,7 @@ fun CameraScreen(
         scope.launch {
             while (isBursting) {
                 captureAndAnalyze(context, imageCapture, cameraExecutor) { file ->
-                    saveCapturedPhoto(file, "composition_assistant_burst")
+                    scope.launch { saveCapturedPhoto(file, "composition_assistant_burst") }
                 }
                 burstCount += 1
                 delay(200)
@@ -489,9 +490,10 @@ fun CameraScreen(
     val captureGuidedPhoto = {
         performHaptic(HapticFeedbackConstants.LONG_PRESS)
         captureAndAnalyze(context, imageCapture, cameraExecutor) { file ->
-            saveCapturedPhoto(file, "composition_assistant_final")
             scope.launch {
-                viewModel.handleGuidedCaptureCompleted()
+                if (saveCapturedPhoto(file, "composition_assistant_final")) {
+                    viewModel.handleGuidedCaptureCompleted()
+                }
             }
         }
     }
