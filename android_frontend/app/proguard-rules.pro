@@ -12,4 +12,4 @@
 # Keep Gson
 -keepattributes *Annotation*
 -keep class com.google.gson.** { *; }
--keep class com.photoframer.data.api.** { *; }
+-keep class com.compositionassistant.data.api.** { *; }

@@ -54,7 +54,7 @@ early-ai-analysis.webp / early-ai-guidance.webp
 | 入口 | 目标画面来源 | 引导与验证方式 |
 | --- | --- | --- |
 | **AI** | 三阶段后端分析现场，生成拍摄建议与目标参考图 | 支持平移、缩放、水平校正、升降与绕拍等多类动作的逐步视觉验证 |
-| **画面内** | 外部裁切服务对原图推荐最佳裁切区域 | 由 [InFrameCompositionGuideBuilder.kt](./android_frontend/app/src/main/java/com/photoframer/inframe/InFrameCompositionGuideBuilder.kt) 在本地计算中心偏移与缩放倍率，生成平移/缩放引导步骤 |
+| **画面内** | 外部裁切服务对原图推荐最佳裁切区域 | 由 [InFrameCompositionGuideBuilder.kt](./android_frontend/app/src/main/java/com/compositionassistant/inframe/InFrameCompositionGuideBuilder.kt) 在本地计算中心偏移与缩放倍率，生成平移/缩放引导步骤 |
 
 ---
 
@@ -98,8 +98,8 @@ flowchart TB
 
 Android 端位于 `android_frontend/`，正式相机管线由 **CameraX** 驱动，不依赖云端持续推理即可在端侧完成高帧率闭环验证：
 
-- **常规构图验证链（平移 / 缩放 / 水平校正）**：[`StepValidator.kt`](./android_frontend/app/src/main/java/com/photoframer/vision/StepValidator.kt) 将实时预览帧与目标参考图统一缩放到 360px 基准宽度后，利用 [`FeatureMatcher.kt`](./android_frontend/app/src/main/java/com/photoframer/vision/FeatureMatcher.kt)（ORB 特征匹配）与 [`HomographyAnalyzer.kt`](./android_frontend/app/src/main/java/com/photoframer/vision/HomographyAnalyzer.kt)（单应矩阵分解）计算平移像素差、缩放倍率与滚转角，并在特征稀疏时由 [`PerceptualHashMatcher.kt`](./android_frontend/app/src/main/java/com/photoframer/vision/PerceptualHashMatcher.kt)（pHash）做相似度兜底。
-- **机位视角变化验证（绕拍 / 升降 / 前后移动）**：[`ViewChangeAnalyzer.kt`](./android_frontend/app/src/main/java/com/photoframer/vision/ViewChangeAnalyzer.kt) 融合全局特征、透视变化与 ML Kit 主体检测追踪。
+- **常规构图验证链（平移 / 缩放 / 水平校正）**：[`StepValidator.kt`](./android_frontend/app/src/main/java/com/compositionassistant/vision/StepValidator.kt) 将实时预览帧与目标参考图统一缩放到 360px 基准宽度后，利用 [`FeatureMatcher.kt`](./android_frontend/app/src/main/java/com/compositionassistant/vision/FeatureMatcher.kt)（ORB 特征匹配）与 [`HomographyAnalyzer.kt`](./android_frontend/app/src/main/java/com/compositionassistant/vision/HomographyAnalyzer.kt)（单应矩阵分解）计算平移像素差、缩放倍率与滚转角，并在特征稀疏时由 [`PerceptualHashMatcher.kt`](./android_frontend/app/src/main/java/com/compositionassistant/vision/PerceptualHashMatcher.kt)（pHash）做相似度兜底。
+- **机位视角变化验证（绕拍 / 升降 / 前后移动）**：[`ViewChangeAnalyzer.kt`](./android_frontend/app/src/main/java/com/compositionassistant/vision/ViewChangeAnalyzer.kt) 融合全局特征、透视变化与 ML Kit 主体检测追踪。
 
 ---
 
@@ -217,7 +217,7 @@ uvicorn main:app --host 0.0.0.0 --port 8100 --reload
 
 详细架构与本地开发说明请查看 [android_frontend/README.md](./android_frontend/README.md)。
 
-客户端接口地址配置位于 [`ApiConfig.kt`](./android_frontend/app/src/main/java/com/photoframer/data/api/ApiConfig.kt)，默认配置指向已部署的服务地址：
+客户端接口地址配置位于 [`ApiConfig.kt`](./android_frontend/app/src/main/java/com/compositionassistant/data/api/ApiConfig.kt)，默认配置指向已部署的服务地址：
 - `AI_COMPOSITION_URL`：`http://aicrop.312237.xyz/`
 - `IN_FRAME_COMPOSITION_URL`：`https://crop2.312237.xyz/predict?return_preview=0`
 
@@ -242,8 +242,8 @@ const val AI_COMPOSITION_URL = "http://192.168.1.20:8100/"
 1. 本仓库总览（本文档）
 2. Android 客户端架构：[android_frontend/README.md](./android_frontend/README.md)
 3. 后端流水线说明：[backend/README.md](./backend/README.md)
-4. 前端相机入口与业务状态机：[`CameraScreen.kt`](./android_frontend/app/src/main/java/com/photoframer/ui/screens/CameraScreen.kt) → [`CameraViewModel.kt`](./android_frontend/app/src/main/java/com/photoframer/viewmodel/CameraViewModel.kt)
-5. 端侧视觉闭环核心：[`StepValidator.kt`](./android_frontend/app/src/main/java/com/photoframer/vision/StepValidator.kt)
+4. 前端相机入口与业务状态机：[`CameraScreen.kt`](./android_frontend/app/src/main/java/com/compositionassistant/ui/screens/CameraScreen.kt) → [`CameraViewModel.kt`](./android_frontend/app/src/main/java/com/compositionassistant/viewmodel/CameraViewModel.kt)
+5. 端侧视觉闭环核心：[`StepValidator.kt`](./android_frontend/app/src/main/java/com/compositionassistant/vision/StepValidator.kt)
 6. 后端路由与编排核心：[`backend/routers/composition.py`](./backend/routers/composition.py) → [`backend/services/common.py`](./backend/services/common.py)
 
 ### 关键事实与注意事项

@@ -2,6 +2,12 @@
 
 `android_frontend` 是 Composition Assistant 的 Android 客户端。它负责相机预览、拍照、把图片发给后端获取候选构图方案，并在用户选定一个方案后利用本地视觉验证链做实时引导，直到用户完成拍摄。
 
+## 工程标识
+
+- 工程名 `composition_assistant`
+- Android namespace `com.compositionassistant`
+- 应用 ID `com.compositionassistant.v1`
+
 ## 相机与引导
 
 本文对应 `Composition_Assistant_V1` 的 Android 客户端，使用 CameraX 提供相机能力，实时引导主要依赖 OpenCV 特征匹配、单应分析和其他图像信号。
@@ -55,7 +61,7 @@ CameraX ImageAnalysis
 
 当前 UI 主状态定义在：
 
-- `app/src/main/java/com/photoframer/ui/state/CameraUiState.kt`
+- `app/src/main/java/com/compositionassistant/ui/state/CameraUiState.kt`
 
 主要状态包括：
 
@@ -82,7 +88,7 @@ android_frontend
 │   ├── build.gradle.kts
 │   └── src/main
 │       ├── AndroidManifest.xml
-│       ├── java/com/photoframer
+│       ├── java/com/compositionassistant
 │       │   ├── MainActivity.kt
 │       │   ├── data
 │       │   │   ├── api
@@ -108,14 +114,14 @@ android_frontend
 
 如果你第一次看这部分代码，建议先读：
 
-1. `app/src/main/java/com/photoframer/MainActivity.kt`
-2. `app/src/main/java/com/photoframer/ui/state/CameraUiState.kt`
-3. `app/src/main/java/com/photoframer/ui/screens/CameraScreen.kt`
-4. `app/src/main/java/com/photoframer/viewmodel/CameraViewModel.kt`
-5. `app/src/main/java/com/photoframer/data/repository/CompositionRepository.kt`
-6. `app/src/main/java/com/photoframer/vision/StepValidator.kt`
-7. `app/src/main/java/com/photoframer/vision/FeatureMatcher.kt`
-8. `app/src/main/java/com/photoframer/vision/ViewChangeAnalyzer.kt`
+1. `app/src/main/java/com/compositionassistant/MainActivity.kt`
+2. `app/src/main/java/com/compositionassistant/ui/state/CameraUiState.kt`
+3. `app/src/main/java/com/compositionassistant/ui/screens/CameraScreen.kt`
+4. `app/src/main/java/com/compositionassistant/viewmodel/CameraViewModel.kt`
+5. `app/src/main/java/com/compositionassistant/data/repository/CompositionRepository.kt`
+6. `app/src/main/java/com/compositionassistant/vision/StepValidator.kt`
+7. `app/src/main/java/com/compositionassistant/vision/FeatureMatcher.kt`
+8. `app/src/main/java/com/compositionassistant/vision/ViewChangeAnalyzer.kt`
 
 ## 技术栈
 
@@ -162,7 +168,7 @@ android_frontend
 
 接口配置文件在：
 
-- `app/src/main/java/com/photoframer/data/api/ApiConfig.kt`
+- `app/src/main/java/com/compositionassistant/data/api/ApiConfig.kt`
 
 当前默认值：
 
@@ -285,7 +291,7 @@ cd android_frontend
 ./gradlew test
 ```
 
-当前主要单元测试位于 `app/src/test/java/com/photoframer/`，包含：
+当前主要单元测试位于 `app/src/test/java/com/compositionassistant/`，包含：
 
 - `viewmodel/CameraViewModelTest.kt`、`viewmodel/CameraErrorActionTest.kt`
 - `vision/MotionStepEvaluatorsTest.kt`、`vision/ViewChangeScoringTest.kt`
